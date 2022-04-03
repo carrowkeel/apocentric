@@ -32,9 +32,14 @@ export const resource = (env, {resource, settings}, elem, storage={}) => ({
 			e.target.querySelector('[data-module="rtc"]').dispatchEvent(new CustomEvent('receivedata', {detail: e.detail}));
 		}],
 		['[data-module="resource"]', 'send', e => {
-			if (e.target.querySelector('[data-module="rtc"]') && true)
-				return e.target.dispatchEvent(new CustomEvent('message', {detail: {data: e.detail.data}}));
-			
+			if (e.target.dataset.connectionId === 'local')
+				return;
+			if (e.target.querySelector('[data-module="rtc"]') && e.target.querySelector('[data-module="rtc"]').dataset.status === 'connected')
+				return e.target.querySelector('[data-module="rtc"]').dispatchEvent(new CustomEvent('send', {detail: e.detail}));
+			// Locate ws element...
+			const ws = e.target.closest('.apocentric').querySelector('[data-module="ws"]');
+			// Decide where to handle problems with data unsuitable to be sent via WebSocket
+			ws.dispatchEvent(new CustomEvent('send', {detail: e.detail}));
 		}],
 		['[data-module="rtc"]', 'connected', e => {
 			elem.classList.add('rtc');

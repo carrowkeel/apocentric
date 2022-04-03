@@ -152,7 +152,7 @@ const threads = sum(resources.map(resource => +(resource.dataset.threads)));
 const jobs = [];
 const batches = batchJobs(jobs, threads);
 let pointer = 0;
-return Promise.all(resources.map(resource => resource.dispatchEvent(new CustomEvent('send', {detail: {data: batches.slice(pointer += +(resource.dataset.threads), +(resource.dataset.threads))}}))))
+return Promise.all(resources.map(resource => resource.dispatchEvent(new CustomEvent('send', {detail: {type: 'request', user: resource.connection_id, data: batches.slice(pointer += +(resource.dataset.threads), +(resource.dataset.threads))}}))))
 	.then(results => results.reduce((a,result) => a.concat(result), []));
 
 */
@@ -294,10 +294,6 @@ export const apc = (env, {options}, elem, storage={}) => ({
 			if (cachedSettings().connected)
 				connect(elem, options, options.local_resource);
 			elem.querySelector('[data-tab]').click();
-		}],
-		['[data-module="apc"]', 'message', async e => {
-			const {type, user, data} = e.detail;
-			options.ws.send(JSON.stringify({type, connection_id: user, data}));
 		}],
 		['[data-module="apc"]', 'distribute', async e => {
 			const machines = Array.from(elem.querySelectorAll('[data-machine_id]')).map(v => Object.assign({}, v.dataset, {threads: v.querySelector('input.threads').value}));

@@ -21,9 +21,9 @@ const receiveMessage = (rtc_elem, event, user) => {
 	rtc_elem.dispatchEvent(new CustomEvent('receivemessage', {detail: data}));
 };
 
-const sendCandidate = (apc, event, user) => {
+const sendCandidate = (resource, event, user) => {
 	if (event.candidate) {
-		apc.dispatchEvent(new CustomEvent('message', {detail: {type: 'rtc', user, data: {type: 'ice_candidate', user, data: event.candidate}}}));
+		resource.dispatchEvent(new CustomEvent('send', {detail: {type: 'rtc', user, data: {type: 'ice_candidate', user, data: event.candidate}}}));
 	}
 };
 
@@ -46,7 +46,7 @@ const handleConnectionState = async (connection, event, user) => {
 		connection.restartIce();
 };
 
-const createPeerConnection = (rtc_elem, apc, user, ice_queue, active = true) => {
+const createPeerConnection = (rtc_elem, resource, user, ice_queue, active = true) => {
 	const google_stun = {
 		urls: [
 			'stun:stun.l.google.com:19302',
@@ -57,7 +57,7 @@ const createPeerConnection = (rtc_elem, apc, user, ice_queue, active = true) => 
 		]
 	};
 	const connection = new RTCPeerConnection({iceServers: [google_stun]});
-	connection.addEventListener('icecandidate', event => sendCandidate(apc, event, user));
+	connection.addEventListener('icecandidate', event => sendCandidate(resource, event, user));
 	connection.addEventListener('icecandidateerror', event => console.log(event));
 	connection.addEventListener('signalingstatechange', event => handleSignalingState(connection, event, user));
 	connection.addEventListener('iceconnectionstatechange', event => handleConnectionState(connection, event, user));
@@ -69,11 +69,11 @@ const createPeerConnection = (rtc_elem, apc, user, ice_queue, active = true) => 
 	return connection;
 };
 
-const processOffer = async (apc, user, connection, offer) => {
+const processOffer = async (resource, user, connection, offer) => {
 	return connection.setRemoteDescription(offer)
 		.then(() => connection.createAnswer())
 		.then(answer => connection.setLocalDescription(answer))
-		.then(() => apc.dispatchEvent(new CustomEvent('message', {detail: {type: 'rtc', user, data: {type: 'answer', user, data: connection.localDescription}}})))
+		.then(() => resource.dispatchEvent(new CustomEvent('send', {detail: {type: 'rtc', user, data: {type: 'answer', user, data: connection.localDescription}}})))
 		.catch(e => console.log('Error processing offer: '+e));
 };
 
@@ -87,17 +87,17 @@ const processAnswer = (connection, answer) => {
 		});
 };
 
-const sendOffer = (apc, user, connection) => {
+const sendOffer = (resource, user, connection) => {
 	connection.createOffer()
 		.then(offer => connection.setLocalDescription(offer))
-		.then(() => apc.dispatchEvent(new CustomEvent('message', {detail: {type: 'rtc', user, data: {type: 'offer', user, data: connection.localDescription}}})))
+		.then(() => resource.dispatchEvent(new CustomEvent('send', {detail: {type: 'rtc', user, data: {type: 'offer', user, data: connection.localDescription}}})))
 		.catch(e => console.log(e));
 };
 
-const process = async (apc, user, connection, ice_queue, rtc_data) => {
+const process = async (resource, user, connection, ice_queue, rtc_data) => {
 	switch (rtc_data.type) {
 		case 'offer':
-			processOffer(apc, user, connection, rtc_data.data); // Implement queue
+			processOffer(resource, user, connection, rtc_data.data); // Implement queue
 			break;
 		case 'answer':
 			processAnswer(connection, rtc_data.data);
@@ -116,27 +116,29 @@ export const rtc = (env, {connection_id: ws_connection_id}, elem, storage={ice_q
 	},
 	hooks: [
 		['[data-module="rtc"]', 'connect', async e => {
-			const apc = e.target.closest('.apocentric');
-			storage.peer_connection = createPeerConnection(elem, apc, ws_connection_id, storage.ice_queue); // Find a way to have this not in storage
-			sendOffer(apc, ws_connection_id, storage.peer_connection);
+			const resource = e.target.closest('[data-module="resource"]');
+			storage.peer_connection = createPeerConnection(elem, resource, ws_connection_id, storage.ice_queue); // Find a way to have this not in storage
+			sendOffer(resource, ws_connection_id, storage.peer_connection);
 		}],
 		['[data-module="rtc"]', 'receivedata', e => {
-			const apc = e.target.closest('.apocentric');
+			const resource = e.target.closest('[data-module="resource"]');
 			if (!storage.peer_connection)
-				storage.peer_connection = createPeerConnection(elem, apc, ws_connection_id, storage.ice_queue, false);
-			process(apc, ws_connection_id, storage.peer_connection, storage.ice_queue, e.detail.rtc_data);
+				storage.peer_connection = createPeerConnection(elem, resource, ws_connection_id, storage.ice_queue, false);
+			process(resource, ws_connection_id, storage.peer_connection, storage.ice_queue, e.detail.rtc_data);
 		}],
-		['[data-module="rtc"]', 'channelconnected', e => {
+		['[data-module="rtc"]', 'channelconnected', e => { // Update connection state
 			storage.channel = e.detail.channel;
+			elem.dataset.status = 'connected';
 			elem.dispatchEvent(new Event('connected'));
 			console.log(storage.channel);
 		}],
 		['[data-module="rtc"]', 'channeldisconnected', e => {
+			elem.dataset.status = 'disconnected';
 		}],
-		['[data-module="rtc"]', 'message', e => {
+		['[data-module="rtc"]', 'send', e => {
 			storage.channel.send(JSON.stringify(e.detail.data));
 		}],
-		['[data-module="rtc"]', 'receivemessage', e => {
+		['[data-module="rtc"]', 'message', e => {
 			console.log(e.detail.data);
 		}],
 		['[data-module="rtc"]', 'disconnect', e => {
