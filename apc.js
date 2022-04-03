@@ -115,8 +115,49 @@ const wsRequest = (options, machine, message_data) => new Promise(async (resolve
 	}
 });
 
+/*
+	local:
+		const request = Promise.all(collection.map(batch => options.local_queue({framework, sources, fixed_params, variable_params: batch})));
+	remote:
+		const request = wsRequest(options, machine, {framework, sources, fixed_params, collection})
+
+
+	const {id, framework, sources, fixed_params, variable_params} = request;
+	const [machines, batches] = batchSet(_machines, framework, variable_params, 100);
+	const requests = [];
+	let pointer = 0;
+	while (pointer < batches.length) {
+		while (machines.length > 0 && pointer < batches.length) {
+			const machine = machines.shift();
+			const collection = batches.slice(pointer, pointer + +(machine.threads));
+			const request = message();
+			requests.push(request.then(batches => batches.reduce((a,batch) => a.concat(batch), [])));
+			pointer += collection.length;
+		}
+	}
+	return Promise.all(requests).then(results => {
+		return results.reduce((a,result) => a.concat(result), []);
+	});
+*/
+
+// Dist model: optimize batch size based on threads (greedy - distribute to more threads so long as time exceeds a basic run time threshold)
+// Loop through resources starting with local resource and assign batches to "used" threads
+
+/*
+
+const resources = Array.from(container.querySelectorAll('[data-module="resource"]'))
+	.filter(resource => resource.dataset.frameworks.split(',').includes(framework))
+	.sort((a,b) => a.local || a.dataset.threads - b.dataset.threads); // Update data-threads with value of input[name="threads"]
+const threads = sum(resources.map(resource => +(resource.dataset.threads)));
+const jobs = [];
+const batches = batchJobs(jobs, threads);
+let pointer = 0;
+return Promise.all(resources.map(resource => resource.dispatchEvent(new CustomEvent('send', {detail: {data: batches.slice(pointer += +(resource.dataset.threads), +(resource.dataset.threads))}}))))
+	.then(results => results.reduce((a,result) => a.concat(result), []));
+
+*/
+
 const batchSet = (resources, framework, params_set, time, min_time = 1000) => {
-	const settings = cachedSettings();
 	const compatible_nodes = resources.filter(resource => resource.frameworks.split(',').includes(framework));
 	const free_threads = compatible_nodes.reduce((a,v) => a + +(v.threads), 0);
 	if (free_threads === 0)
@@ -267,37 +308,6 @@ export const apc = (env, {options}, elem, storage={}) => ({
 			} catch (err) {
 				e.detail.reject(err);
 			}
-/*
-	const {id, framework, sources, fixed_params, variable_params} = request;
-	const time = 100; // Time in milliseconds to complete single run, implement time estimation for multiple frameworks
-	const [machines, batches] = batchSet(_machines, framework, variable_params, time);
-	if (batches.length === 0)
-		throw 'No available threads';
-	document.querySelectorAll(`[data-job="${id}"]`).forEach(elem => elem.dispatchEvent(new CustomEvent('init', {detail: {batches: batches.length, time: Math.ceil(time * variable_params.length / batches.length)}})));
-	const requests = [];
-	let pointer = 0;
-	while (pointer < batches.length) {
-		while (machines.length > 0 && pointer < batches.length) {
-			const machine = machines.shift();
-			const collection = batches.slice(pointer, pointer + +(machine.threads));
-			const request = machine.connection_id === 'local' ?
-				Promise.all(collection.map(batch => options.local_queue({framework, sources, fixed_params, variable_params: batch}).then(result => {
-					document.querySelectorAll(`[data-job="${id}"]`).forEach(elem => elem.dispatchEvent(new CustomEvent('progress', {detail: {processed: 1}})));
-					return result;
-				}))) :
-				wsRequest(options, machine, {framework, sources, fixed_params, collection}).then(results => {
-					document.querySelectorAll(`[data-job="${id}"]`).forEach(elem => elem.dispatchEvent(new CustomEvent('progress', {detail: {processed: collection.length}})));
-					return results;
-				});
-			requests.push(request.then(batches => batches.reduce((a,batch) => a.concat(batch), [])));
-			pointer += collection.length;
-		}
-	}
-	return Promise.all(requests).then(results => {
-		document.querySelectorAll(`[data-job="${id}"]`).forEach(elem => elem.dispatchEvent(new CustomEvent('complete', {detail: {}})));
-		return results.reduce((a,result) => a.concat(result), []);
-	});
-*/
 		}],
 		['[data-module="apc"]', 'resourcestatus', e => {
 			const active_threads = e.detail.workers.filter(v => v !== undefined).length;
