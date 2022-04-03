@@ -105,6 +105,7 @@ const wsReceiveParts = (ws, type, request_id, parts = []) => new Promise((resolv
 	});
 });
 
+// Move to resource
 const wsRequest = (options, machine, message_data) => new Promise(async (resolve, reject) => {
 	switch(machine.type) {
 		case 'node':
@@ -114,9 +115,9 @@ const wsRequest = (options, machine, message_data) => new Promise(async (resolve
 	}
 });
 
-const batchSet = (machines, framework, params_set, time, min_time = 1000) => {
+const batchSet = (resources, framework, params_set, time, min_time = 1000) => {
 	const settings = cachedSettings();
-	const compatible_nodes = machines.filter(machine => machine.frameworks.split(',').includes(framework));
+	const compatible_nodes = resources.filter(resource => resource.frameworks.split(',').includes(framework));
 	const free_threads = compatible_nodes.reduce((a,v) => a + +(v.threads), 0);
 	if (free_threads === 0)
 		return [[], []];
@@ -225,7 +226,6 @@ const connect = (container, options, resource, tries=0) => new Promise((resolve,
 				break;
 			case 'rtc':
 				container.querySelector(`[data-connection_id="${message_data.connection_id}"]`).dispatchEvent(new CustomEvent('processrtc', {detail: {rtc_data: message_data.data, ws: options.ws}}));
-				//import('./rtc.js').then(rtc => rtc.process(Object.assign(rtc_env, {ws: options.ws}), Object.assign(data.data, {user: data.connection_id})));
 				break;
 		}
 	});
@@ -267,6 +267,37 @@ export const apc = (env, {options}, elem, storage={}) => ({
 			} catch (err) {
 				e.detail.reject(err);
 			}
+/*
+	const {id, framework, sources, fixed_params, variable_params} = request;
+	const time = 100; // Time in milliseconds to complete single run, implement time estimation for multiple frameworks
+	const [machines, batches] = batchSet(_machines, framework, variable_params, time);
+	if (batches.length === 0)
+		throw 'No available threads';
+	document.querySelectorAll(`[data-job="${id}"]`).forEach(elem => elem.dispatchEvent(new CustomEvent('init', {detail: {batches: batches.length, time: Math.ceil(time * variable_params.length / batches.length)}})));
+	const requests = [];
+	let pointer = 0;
+	while (pointer < batches.length) {
+		while (machines.length > 0 && pointer < batches.length) {
+			const machine = machines.shift();
+			const collection = batches.slice(pointer, pointer + +(machine.threads));
+			const request = machine.connection_id === 'local' ?
+				Promise.all(collection.map(batch => options.local_queue({framework, sources, fixed_params, variable_params: batch}).then(result => {
+					document.querySelectorAll(`[data-job="${id}"]`).forEach(elem => elem.dispatchEvent(new CustomEvent('progress', {detail: {processed: 1}})));
+					return result;
+				}))) :
+				wsRequest(options, machine, {framework, sources, fixed_params, collection}).then(results => {
+					document.querySelectorAll(`[data-job="${id}"]`).forEach(elem => elem.dispatchEvent(new CustomEvent('progress', {detail: {processed: collection.length}})));
+					return results;
+				});
+			requests.push(request.then(batches => batches.reduce((a,batch) => a.concat(batch), [])));
+			pointer += collection.length;
+		}
+	}
+	return Promise.all(requests).then(results => {
+		document.querySelectorAll(`[data-job="${id}"]`).forEach(elem => elem.dispatchEvent(new CustomEvent('complete', {detail: {}})));
+		return results.reduce((a,result) => a.concat(result), []);
+	});
+*/
 		}],
 		['[data-module="apc"]', 'resourcestatus', e => {
 			const active_threads = e.detail.workers.filter(v => v !== undefined).length;

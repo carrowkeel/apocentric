@@ -1,4 +1,13 @@
 
+const wsRequest = (options, machine, message_data) => new Promise(async (resolve, reject) => {
+	switch(machine.type) {
+		case 'node':
+			const request_id = generateID(8);
+			wsReceiveParts(options.ws, 'result', request_id).then(resolve);
+			return wsSendParts(options.ws, {request_id, type: 'request', machine}, message_data);
+	}
+});
+
 export const resource = (env, {resource, settings}, elem, storage={}) => ({
 	render: async () => {
 		const threads = settings ? settings.used : (resource.cost > 0 ? 0 : resource.capacity);
@@ -22,8 +31,13 @@ export const resource = (env, {resource, settings}, elem, storage={}) => ({
 				await addModule(e.target, 'rtc', {connection_id});
 			e.target.querySelector('[data-module="rtc"]').dispatchEvent(new CustomEvent('receivedata', {detail: e.detail}));
 		}],
-		['[data-module="resource"]', 'rtcconnected', e => {
-			console.log(resource, 'rtcconnected');
+		['[data-module="resource"]', 'send', e => {
+			if (e.target.querySelector('[data-module="rtc"]') && true)
+				return e.target.dispatchEvent(new CustomEvent('message', {detail: {data: e.detail.data}}));
+			
+		}],
+		['[data-module="rtc"]', 'connected', e => {
+			elem.classList.add('rtc');
 		}],
 		['.apocentric', 'resourcestatus', e => {
 			const active_threads = e.detail.workers.filter(v => v !== undefined).length;

@@ -1,22 +1,24 @@
 
-const handleChannelStatus = (apc, event, user) => {
+const handleChannelStatus = (rtc_elem, event, user) => {
 	if (event.type === 'open') {
-		apc.querySelector(`[data-connection_id="${user}"]`).dispatchEvent(new Event('rtcconnected'));
+		rtc_elem.dispatchEvent(new CustomEvent('channelconnected', {detail: {channel: event.target}}));
 	} else if (event.type === 'close') {
-		apc.querySelector(`[data-connection_id="${user}"]`).dispatchEvent(new Event('rtcdisconnected'));
+		rtc_elem.dispatchEvent(new Event('channeldisconnected'));
 	}
 };
 
-const addDataChannel = (apc, event, user, _channel) => {
+const addDataChannel = (rtc_elem, event, user, _channel) => {
 	const channel = _channel || event.channel;
-	channel.addEventListener('message', event => receiveMessage(apc, event, user));
-	channel.addEventListener('open', event => handleChannelStatus(apc, event, user));
-	channel.addEventListener('close', event => handleChannelStatus(apc, event, user));
+	channel.addEventListener('message', event => receiveMessage(rtc_elem, event, user));
+	channel.addEventListener('open', event => handleChannelStatus(rtc_elem, event, user));
+	channel.addEventListener('close', event => handleChannelStatus(rtc_elem, event, user));
+	return channel;
 };
 
-const receiveMessage = (apc, event, user) => {
+const receiveMessage = (rtc_elem, event, user) => {
 	const data = JSON.parse(event.data);
-	apc.querySelector(`[data-connection_id="${user}"]`).dispatchEvent(new CustomEvent('data', {detail: data}));
+	console.log(data);
+	rtc_elem.dispatchEvent(new CustomEvent('receivemessage', {detail: data}));
 };
 
 const sendCandidate = (apc, event, user) => {
@@ -44,14 +46,14 @@ const handleConnectionState = async (connection, event, user) => {
 		connection.restartIce();
 };
 
-const createPeerConnection = (apc, user, ice_queue, active = true) => {
+const createPeerConnection = (rtc_elem, apc, user, ice_queue, active = true) => {
 	const google_stun = {
 		urls: [
-			"stun:stun.l.google.com:19302",
-			"stun:stun1.l.google.com:19302",
-			"stun:stun2.l.google.com:19302",
-			"stun:stun3.l.google.com:19302",
-			"stun:stun4.l.google.com:19302"
+			'stun:stun.l.google.com:19302',
+			'stun:stun1.l.google.com:19302',
+			'stun:stun2.l.google.com:19302',
+			'stun:stun3.l.google.com:19302',
+			'stun:stun4.l.google.com:19302'
 		]
 	};
 	const connection = new RTCPeerConnection({iceServers: [google_stun]});
@@ -61,9 +63,9 @@ const createPeerConnection = (apc, user, ice_queue, active = true) => {
 	connection.addEventListener('iceconnectionstatechange', event => handleConnectionState(connection, event, user));
 	connection.addEventListener('icegatheringstatechange', event => processIceQueue(connection, ice_queue));
 	if (active)
-		addDataChannel(apc, undefined, user, connection.createDataChannel(user));
+		addDataChannel(rtc_elem, undefined, user, connection.createDataChannel(user));
 	else
-		connection.addEventListener('datachannel', event => addDataChannel(apc, event, user));
+		connection.addEventListener('datachannel', event => addDataChannel(rtc_elem, event, user));
 	return connection;
 };
 
@@ -113,16 +115,29 @@ export const rtc = (env, {connection_id: ws_connection_id}, elem, storage={ice_q
 		elem.dispatchEvent(new Event('done'));
 	},
 	hooks: [
-		['[data-module="rtc"]', 'connect', e => {
+		['[data-module="rtc"]', 'connect', async e => {
 			const apc = e.target.closest('.apocentric');
-			storage.peer_connection = createPeerConnection(apc, ws_connection_id, storage.ice_queue); // Find a way to have this not in storage
+			storage.peer_connection = createPeerConnection(elem, apc, ws_connection_id, storage.ice_queue); // Find a way to have this not in storage
 			sendOffer(apc, ws_connection_id, storage.peer_connection);
 		}],
 		['[data-module="rtc"]', 'receivedata', e => {
 			const apc = e.target.closest('.apocentric');
 			if (!storage.peer_connection)
-				storage.peer_connection = createPeerConnection(apc, ws_connection_id, storage.ice_queue);
+				storage.peer_connection = createPeerConnection(elem, apc, ws_connection_id, storage.ice_queue, false);
 			process(apc, ws_connection_id, storage.peer_connection, storage.ice_queue, e.detail.rtc_data);
+		}],
+		['[data-module="rtc"]', 'channelconnected', e => {
+			storage.channel = e.detail.channel;
+			elem.dispatchEvent(new Event('connected'));
+			console.log(storage.channel);
+		}],
+		['[data-module="rtc"]', 'channeldisconnected', e => {
+		}],
+		['[data-module="rtc"]', 'message', e => {
+			storage.channel.send(JSON.stringify(e.detail.data));
+		}],
+		['[data-module="rtc"]', 'receivemessage', e => {
+			console.log(e.detail.data);
 		}],
 		['[data-module="rtc"]', 'disconnect', e => {
 			storage.peer_connection.close();
