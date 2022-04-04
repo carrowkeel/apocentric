@@ -27,22 +27,44 @@ const wsSendParts = async (ws, request, message_data, limit = 30 * 1024) => {
 		ws.send(JSON.stringify({...request, data: base64}));
 };
 
-const wsReceiveParts = (ws, type, request_id, parts = []) => new Promise((resolve, reject) => {
+const wsReceiveParts = (ws, request_id, parts = []) => new Promise((resolve, reject) => {
 	ws.addEventListener('message', e => {
 		const message_data = JSON.parse(e.data);
-		if (message_data.type !== type || message_data.request_id !== request_id)
+		if (message_data.request_id !== request_id)
 			return;
 		if (message_data.parts)
 			parts.push([message_data.part, message_data.data]);
 		if (message_data.parts === parts.length) {
-			const combined = parts.sort((a,b) => a[0] - b[0]).map(v => v[1]).join('');
-			decodeWS(combined).then(resolve);
-		} else if (!message_data.parts) {
-			const result = decodeWS(message_data.data);
-			resolve(result);
+			resolve(parts.sort((a,b) => a[0] - b[0]).map(v => v[1]).join(''));
 		}
 	});
 });
+
+/*
+
+Message structure
+
+WS:
+{user: connection_id, type: 'request', parts: 1, compression: 'gzip', data: bytes} (JSON string)
+{user: connection_id, type: 'request', request_id: 'abc', parts: 10, part: 1, compression: 'gzip', data: bytes} (JSON string)
+Resource:
+{type: 'request', data: {}}
+
+RTC:
+{type: 'request', data: {}} (JSON string)
+Resource:
+{type: 'request', data: {}}
+
+*/
+
+		// Decode message according to compression flag and number of parts
+
+const decodeMessage = (ws, message_data, receiving) => {
+	if (message_data.parts > 1 && message_data.request_id) {
+		receiving.push(message_data.request_id);
+		return wsReceiveParts(ws, message_data.request_id, [message_data.part, message_data.data])
+	}
+};
 
 const wsRequest = (options, machine, message_data) => new Promise(async (resolve, reject) => {
 	switch(machine.type) {
@@ -54,7 +76,7 @@ const wsRequest = (options, machine, message_data) => new Promise(async (resolve
 });
 
 
-const connectWebSocket = (container, url) => {
+const connectWebSocket = (container, url, receiving = []) => {
 	const ws = new WebSocket();
 	ws.addEventListener('open', e => {
 		container.dispatchEvent(new Event('connected'));
@@ -67,26 +89,14 @@ const connectWebSocket = (container, url) => {
 		container.dispatchEvent(new CustomEvent('error', {detail: {error}}));
 	});
 	ws.addEventListener('message', async e => {
-		
+		// Get connection_id, route to resource
+		const message_data = parseJSON(e.data);
+		if (message_data.request_id && receiving.includes(message_data.request_id))
+			return;
+		const message = decodeMessage(ws, message_data, receiving);
 	});
 	return ws;
 };
-
-/*
-
-Message structure
-
-WS:
-{user: connection_id, type: 'request', parts: 1, compression: 'gzip', data: bytes} (JSON string)
-Resource:
-{type: 'request', data: {}}
-
-RTC:
-{user: connection_id, type: 'request', data: {}} (JSON string)
-Resource:
-{type: 'request', data: {}}
-
-*/
 
 export const ws = (env, {options, local}, elem, storage={receiving: []}) => ({
 	render: async () => {
@@ -123,8 +133,7 @@ export const ws = (env, {options, local}, elem, storage={receiving: []}) => ({
 			storage.ws.send(JSON.stringify({type, connection_id: user, data}));
 		}],
 		['[data-module="ws"]', 'message', e => {
-			// Get connection_id, route to resource
-			// Decode message according to compression flag and number of parts
+
 		}],
 	]
 });
