@@ -95,6 +95,7 @@ const sendOffer = (resource, user, connection) => {
 };
 
 const process = async (resource, user, connection, ice_queue, rtc_data) => {
+	console.log(rtc_data, rtc_data.data);
 	switch (rtc_data.type) {
 		case 'offer':
 			processOffer(resource, user, connection, rtc_data.data); // Implement queue
@@ -122,9 +123,10 @@ export const rtc = (env, {connection_id: ws_connection_id}, elem, storage={ice_q
 		}],
 		['[data-module="rtc"]', 'receivedata', e => {
 			const resource = e.target.closest('[data-module="resource"]');
+			console.log(e.detail.data);
 			if (!storage.peer_connection)
 				storage.peer_connection = createPeerConnection(elem, resource, ws_connection_id, storage.ice_queue, false);
-			process(resource, ws_connection_id, storage.peer_connection, storage.ice_queue, e.detail.rtc_data);
+			process(resource, ws_connection_id, storage.peer_connection, storage.ice_queue, e.detail.data);
 		}],
 		['[data-module="rtc"]', 'channelconnected', e => { // Update connection state
 			storage.channel = e.detail.channel;

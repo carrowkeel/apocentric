@@ -33,6 +33,7 @@ export const resource = (env, {resource, settings}, elem, storage={}) => ({
 		}],
 		['[data-module="resource"]', 'processrtc', async e => {
 			const connection_id = e.target.dataset.connection_id;
+			console.log(e.detail);
 			if (!e.target.querySelector('[data-module="rtc"]'))
 				await addModule(e.target, 'rtc', {connection_id});
 			e.target.querySelector('[data-module="rtc"]').dispatchEvent(new CustomEvent('receivedata', {detail: e.detail}));
@@ -50,6 +51,12 @@ export const resource = (env, {resource, settings}, elem, storage={}) => ({
 		['[data-module="resource"]', 'message', e => {
 			const message = e.detail.message;
 			console.log(message);
+			switch(message.type) {
+				case 'rtc':
+					return elem.dispatchEvent(new CustomEvent('processrtc', {detail: message.data})); // Remove later
+				default:
+					console.log(e);
+			}
 		}],
 		['[data-module="rtc"]', 'connected', e => {
 			elem.classList.add('rtc');

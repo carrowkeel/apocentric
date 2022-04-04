@@ -9,9 +9,8 @@ const decodeBase64 = base64 => {
 	return decoded;
 };
 
-const wsSend = async (ws, request, websocket_frame_limit = 30 * 1024, compression_threshold = 10 * 1024) => {
-	const request_data = JSON.stringify(request.data);
-	const compressed = request_data.length > compression_threshold ? await compress(request_data) : request_data;
+const wsSend = async (ws, request, websocket_frame_limit = 30 * 1024, compression_threshold = 10 * 1024) => { // Fix issue with json encoding
+	const compressed = JSON.stringify(request.data).length > compression_threshold ? await compress(request.data) : request.data;
 	if (compressed.length > websocket_frame_limit) {
 		const parts = Math.ceil(compressed.length / websocket_frame_limit);
 		for (const part of range(0, parts))
@@ -31,9 +30,9 @@ const wsReceiveParts = (ws, request_id, parts = []) => new Promise((resolve, rej
 	});
 });
 
-const compress = async (string) => {
+const compress = async (data) => {
 	const {pako} = await import('./pako.js');
-	const compressed = pako.gzip(string);
+	const compressed = pako.gzip(JSON.stringify(data));
 	return btoa([].reduce.call(compressed, (p,c) => p+String.fromCharCode(c),''));
 }
 
