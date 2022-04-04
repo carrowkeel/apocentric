@@ -1,4 +1,29 @@
 
+const processMessage = (container, ws, message_data) => {
+	switch(message_data.type) {
+		case 'request':
+			if (receiving.includes(message_data.request_id))
+				return;
+			const request = message_data.parts && message_data.parts > 1 ? await wsReceiveParts(ws, 'request', message_data.request_id, [[message_data.part, message_data.data]]) : decodeWS(message_data.data);
+			Promise.all(request.collection ? request.collection.map(batch => options.local_queue({framework: request.framework, sources: request.sources, fixed_params: request.fixed_params, variable_params: batch})) : [options.local_queue(request)]).then(results => {
+				return wsSendParts(ws, {type: 'result', request_id: message_data.request_id, connection_id: message_data.connection_id, machine_id: options.id}, results);
+			});
+			break;
+		case 'resources':
+			message_data.resources.forEach(resource => addResource(container.querySelector('[data-tab-content="resources"]'), options, resource));
+			break;
+		case 'connected': // New resource connected/disconnected - possibly process in apc
+			addResource(container.querySelector('[data-tab-content="resources"]'), options, message_data.resource);
+			break;
+		case 'disconnected':
+			container.querySelectorAll(`[data-connection_id="${message_data.connection_id}"]`).forEach(item => item.remove());
+			break;
+		case 'rtc':
+			container.querySelector(`[data-connection_id="${message_data.connection_id}"]`).dispatchEvent(new CustomEvent('processrtc', {detail: {rtc_data: message_data.data, ws: ws}}));
+			break;
+	}
+};
+
 const wsRequest = (options, machine, message_data) => new Promise(async (resolve, reject) => {
 	switch(machine.type) {
 		case 'node':

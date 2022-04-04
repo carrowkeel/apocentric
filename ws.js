@@ -53,31 +53,6 @@ const wsRequest = (options, machine, message_data) => new Promise(async (resolve
 	}
 });
 
-const processMessage = (container, ws) => { // Connect to module events
-	const message_data = JSON.parse(e.data);
-	switch(message_data.type) {
-		case 'request':
-			if (receiving.includes(message_data.request_id))
-				return;
-			const request = message_data.parts && message_data.parts > 1 ? await wsReceiveParts(ws, 'request', message_data.request_id, [[message_data.part, message_data.data]]) : decodeWS(message_data.data);
-			Promise.all(request.collection ? request.collection.map(batch => options.local_queue({framework: request.framework, sources: request.sources, fixed_params: request.fixed_params, variable_params: batch})) : [options.local_queue(request)]).then(results => {
-				return wsSendParts(ws, {type: 'result', request_id: message_data.request_id, connection_id: message_data.connection_id, machine_id: options.id}, results);
-			});
-			break;
-		case 'resources':
-			message_data.resources.forEach(resource => addResource(container.querySelector('[data-tab-content="resources"]'), options, resource));
-			break;
-		case 'connected': // New resource connected/disconnected - possibly process in apc
-			addResource(container.querySelector('[data-tab-content="resources"]'), options, message_data.resource);
-			break;
-		case 'disconnected':
-			container.querySelectorAll(`[data-connection_id="${message_data.connection_id}"]`).forEach(item => item.remove());
-			break;
-		case 'rtc':
-			container.querySelector(`[data-connection_id="${message_data.connection_id}"]`).dispatchEvent(new CustomEvent('processrtc', {detail: {rtc_data: message_data.data, ws: ws}}));
-			break;
-	}
-};
 
 const connectWebSocket = (container, url) => {
 	const ws = new WebSocket();
@@ -88,14 +63,30 @@ const connectWebSocket = (container, url) => {
 		container.dispatchEvent(new Event('disconnected'));
 	});
 	ws.addEventListener('error', error => {
-		console.log(e);
+		console.log(error);
 		container.dispatchEvent(new CustomEvent('error', {detail: {error}}));
 	});
 	ws.addEventListener('message', async e => {
-		processMessage(container, ws);
+		
 	});
 	return ws;
 };
+
+/*
+
+Message structure
+
+WS:
+{user: connection_id, type: 'request', parts: 1, compression: 'gzip', data: bytes} (JSON string)
+Resource:
+{type: 'request', data: {}}
+
+RTC:
+{user: connection_id, type: 'request', data: {}} (JSON string)
+Resource:
+{type: 'request', data: {}}
+
+*/
 
 export const ws = (env, {options, local}, elem, storage={receiving: []}) => ({
 	render: async () => {
@@ -130,6 +121,10 @@ export const ws = (env, {options, local}, elem, storage={receiving: []}) => ({
 			const {type, user, data} = e.detail;
 			// Here add message splitting etc.
 			storage.ws.send(JSON.stringify({type, connection_id: user, data}));
+		}],
+		['[data-module="ws"]', 'message', e => {
+			// Get connection_id, route to resource
+			// Decode message according to compression flag and number of parts
 		}],
 	]
 });
