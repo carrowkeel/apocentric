@@ -62,59 +62,6 @@ const getName = () => {
 	return name;
 };
 
-const decodeBase64 = base64 => {
-	const binary = atob(base64);
-	const decoded = new Uint8Array(binary.length);
-	for (const i in decoded)
-		decoded[i] = binary.charCodeAt(i);
-	return decoded;
-};
-
-const decodeWS = async base64 => {
-	const {pako} = await import('./pako.js');
-	const decompressed = pako.ungzip(decodeBase64(base64), {to: 'string'});
-	return JSON.parse(decompressed);
-};
-
-const wsSendParts = async (ws, request, message_data, limit = 30 * 1024) => {
-	const {pako} = await import('./pako.js');
-	const compressed = pako.gzip(JSON.stringify(message_data));
-	const base64 = btoa([].reduce.call(compressed, (p,c) => p+String.fromCharCode(c),''));
-	if (base64.length > limit) {
-		const parts = Math.ceil(base64.length / limit);
-		for (const part of range(0, parts))
-			ws.send(JSON.stringify({...request, part, parts, data: base64.slice(part * limit, (part + 1) * limit)}));
-	} else
-		ws.send(JSON.stringify({...request, data: base64}));
-};
-
-const wsReceiveParts = (ws, type, request_id, parts = []) => new Promise((resolve, reject) => {
-	ws.addEventListener('message', e => {
-		const message_data = JSON.parse(e.data);
-		if (message_data.type !== type || message_data.request_id !== request_id)
-			return;
-		if (message_data.parts)
-			parts.push([message_data.part, message_data.data]);
-		if (message_data.parts === parts.length) {
-			const combined = parts.sort((a,b) => a[0] - b[0]).map(v => v[1]).join('');
-			decodeWS(combined).then(resolve);
-		} else if (!message_data.parts) {
-			const result = decodeWS(message_data.data);
-			resolve(result);
-		}
-	});
-});
-
-// Move to resource
-const wsRequest = (options, machine, message_data) => new Promise(async (resolve, reject) => {
-	switch(machine.type) {
-		case 'node':
-			const request_id = generateID(8);
-			wsReceiveParts(options.ws, 'result', request_id).then(resolve);
-			return wsSendParts(options.ws, {request_id, type: 'request', machine}, message_data);
-	}
-});
-
 /*
 	local:
 		const request = Promise.all(collection.map(batch => options.local_queue({framework, sources, fixed_params, variable_params: batch})));
@@ -144,6 +91,8 @@ const wsRequest = (options, machine, message_data) => new Promise(async (resolve
 // Loop through resources starting with local resource and assign batches to "used" threads
 
 /*
+
+distribute
 
 const resources = Array.from(container.querySelectorAll('[data-module="resource"]'))
 	.filter(resource => resource.dataset.frameworks.split(',').includes(framework))
@@ -217,61 +166,6 @@ const addJobItem = (container, job) => {
 	container.appendChild(elem);
 };
 
-const connect = (container, options, resource, tries=0) => new Promise((resolve, reject) => {
-	const token = options.getCredentials('token');
-	if (!token)
-		return reject('No authentication token');
-	const params = new URLSearchParams({authorization: token, ...resource});
-	const receiving = [];
-	const button = container.querySelector('.connect a');
-	button.dataset.status = 'connecting';
-	button.textContent = 'Connecting';
-	options.ws = new WebSocket(`${options.url}/?${params.toString()}`); // Shouldn't be in options
-	options.ws.addEventListener('open', e => {
-		button.dataset.status = 'connected';
-		button.textContent = 'Connected';
-		container.querySelector('.resources-icon').classList.add('connected');
-		options.ws.send(JSON.stringify({type: 'connected', resource}));
-		resolve();
-	});
-	options.ws.addEventListener('close', e => {
-		console.log(e);
-		if (button.dataset.status === 'connected')
-			return connect(container, options, resource, tries + 1);
-		container.querySelectorAll('[data-tab-content="resources"] [data-connection_id]:not([data-connection_id="local"])').forEach(item => item.remove());
-		button.textContent = 'Connect';
-		container.querySelector('.resources-icon').classList.remove('connected');
-	});
-	options.ws.addEventListener('error', e => {
-		console.log(e);
-	});
-	options.ws.addEventListener('message', async e => {
-		const message_data = JSON.parse(e.data);
-		switch(message_data.type) {
-			case 'request':
-				if (receiving.includes(message_data.request_id))
-					return;
-				const request = message_data.parts && message_data.parts > 1 ? await wsReceiveParts(options.ws, 'request', message_data.request_id, [[message_data.part, message_data.data]]) : decodeWS(message_data.data);
-				Promise.all(request.collection ? request.collection.map(batch => options.local_queue({framework: request.framework, sources: request.sources, fixed_params: request.fixed_params, variable_params: batch})) : [options.local_queue(request)]).then(results => {
-					return wsSendParts(options.ws, {type: 'result', request_id: message_data.request_id, connection_id: message_data.connection_id, machine_id: options.id}, results);
-				});
-				break;
-			case 'resources':
-				message_data.resources.forEach(resource => addResource(container.querySelector('[data-tab-content="resources"]'), options, resource));
-				break;
-			case 'connected':
-				addResource(container.querySelector('[data-tab-content="resources"]'), options, message_data.resource);
-				break;
-			case 'disconnected':
-				container.querySelectorAll(`[data-connection_id="${message_data.connection_id}"]`).forEach(item => item.remove());
-				break;
-			case 'rtc':
-				container.querySelector(`[data-connection_id="${message_data.connection_id}"]`).dispatchEvent(new CustomEvent('processrtc', {detail: {rtc_data: message_data.data, ws: options.ws}}));
-				break;
-		}
-	});
-});
-
 const cachedSettings = (update={}, key='apc_settings') => {
 	const options = Object.assign(parseJSON(localStorage.getItem(key), {connected: false, machines: {}}), update);
 	localStorage.setItem(key, JSON.stringify(options));
@@ -284,15 +178,14 @@ export const apc = (env, {options}, elem, storage={}) => ({
 		options.id = getID();
 		options.local_queue = workerQueue(elem, options);
 		options.local_resource = {machine_id: options.id, type: 'node', name: getName(), capacity: options.threads, cost: 0, time: 100, frameworks: options.frameworks.join(',')};
-		elem.innerHTML = `<a class="resources-icon" data-icon="n"></a><div class="resources-menu user-menu menu"><div class="tabs"><a data-tab="resources">Resources</a><a data-tab="jobs">Jobs</a></div><div class="resources" data-tab-content="resources"></div><div class="jobs" data-tab-content="jobs" data-empty="No jobs currently running"></div><div class="connect"><a data-status="disconnected" data-icon="n">Connect</a></div></div>`;
+		elem.innerHTML = `<a class="resources-icon" data-icon="n"></a><div class="resources-menu user-menu menu"><div class="tabs"><a data-tab="resources">Resources</a><a data-tab="jobs">Jobs</a></div><div class="resources" data-tab-content="resources"></div><div class="jobs" data-tab-content="jobs" data-empty="No jobs currently running"></div><div class="websocket"></div></div>`;
+		addModule(elem.querySelector('.websocket'), 'ws', {options: {url: options.url, getCredentials: options.getCredentials}, local: options.local_resource}, true);
 		elem.dispatchEvent(new Event('init'));
 		elem.dispatchEvent(new Event('done'));
 	},
 	hooks: [
 		['[data-module="apc"]', 'init', e => {
 			addResource(elem.querySelector('[data-tab-content="resources"]'), options, Object.assign({}, options.local_resource, {connection_id: 'local'}), true);
-			if (cachedSettings().connected)
-				connect(elem, options, options.local_resource);
 			elem.querySelector('[data-tab]').click();
 		}],
 		['[data-module="apc"]', 'distribute', async e => {
@@ -310,6 +203,22 @@ export const apc = (env, {options}, elem, storage={}) => ({
 			const used = active_threads / e.detail.threads;
 			elem.querySelector('.resources-icon').dataset.notify = active_threads;
 		}],
+		['[data-module="ws"]', 'message', e => {
+			const message = e.detail.message;
+			console.log(message);
+			switch(message.type) {
+				case 'resources':
+					return message.data.forEach(resource => addResource(elem.querySelector('[data-tab-content="resources"]'), options, resource));
+				case 'connected':
+					return addResource(elem.querySelector('[data-tab-content="resources"]'), options, message.data);
+				case 'disconnected':
+					return elem.querySelectorAll(`[data-module="resource"][data-connection_id="${message.connection_id}"]`).forEach(item => item.remove());
+				default:
+					return elem.querySelector(`[data-module="resource"][data-connection_id="${message.user}"]`).dispatchEvent(new CustomEvent('message', {detail: e.detail}));
+			}
+			// Get connection_id, route to resource, consider resource listening to ws vs. ws passing on event to 
+			// Consider case where resource doesn't exist yet
+		}],
 		['.resources-menu [data-tab]', 'click', e => {
 			const menu = e.target.closest('.resources-menu');
 			menu.querySelectorAll('[data-tab]').forEach(elem => elem.classList.remove('selected'));
@@ -320,20 +229,6 @@ export const apc = (env, {options}, elem, storage={}) => ({
 		['.resources-icon', 'click', e => {
 			const nav = e.target.closest('nav');
 			nav.querySelector('.resources-menu').classList.toggle('show');
-		}],
-		['.resources-menu .name', 'click', e => {
-			//e.target.closest('[data-connection_id]').classList.toggle('disabled');
-		}],
-		['.resources-menu .connect a', 'click', async e => {
-			if (e.target.dataset.status === 'disconnected') {
-				cachedSettings({connected: true});
-				if (!options.ws || options.ws.readyState > 1)
-					connect(elem, options, options.local_resource);
-			} else {
-				e.target.dataset.status = 'disconnected';
-				cachedSettings({connected: false});
-				options.ws.close();
-			}
 		}],
 		['.resources-menu .threads', 'focusout', e => {
 			const machines = Array.from(elem.querySelectorAll('[data-machine_id]')).reduce((a,machine) => Object.assign(a, {[machine.dataset.machine_id]: {used: +(machine.querySelector('input.threads').value)}}), {});

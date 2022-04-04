@@ -139,7 +139,7 @@ export const rtc = (env, {connection_id: ws_connection_id}, elem, storage={ice_q
 			storage.channel.send(JSON.stringify(e.detail.data));
 		}],
 		['[data-module="rtc"]', 'message', e => {
-			console.log(e.detail.data);
+			elem.closest('[data-module="resource"]').dispatchEvent(e); // ?
 		}],
 		['[data-module="rtc"]', 'disconnect', e => {
 			storage.peer_connection.close();
