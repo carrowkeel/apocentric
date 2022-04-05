@@ -1,5 +1,6 @@
 
 const range = (start,end) => Array.from(Array(end-start)).map((v,i)=>i+start);
+const sum = arr => arr.reduce((a,v) => a + v, 0);
 const randint = (m,m1) => Math.floor(Math.random() * (m1 - m)) + m;
 const letters = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 const generateID = l => Array.from(new Array(l)).map(v=>letters[randint(0, letters.length)]).join('');
@@ -62,91 +63,41 @@ const getName = () => {
 	return name;
 };
 
-/*
-	local:
-		const request = Promise.all(collection.map(batch => options.local_queue({framework, sources, fixed_params, variable_params: batch})));
-	remote:
-		const request = wsRequest(options, machine, {framework, sources, fixed_params, collection})
-
-
-	const {id, framework, sources, fixed_params, variable_params} = request;
-	const [machines, batches] = batchSet(_machines, framework, variable_params, 100);
-	const requests = [];
-	let pointer = 0;
-	while (pointer < batches.length) {
-		while (machines.length > 0 && pointer < batches.length) {
-			const machine = machines.shift();
-			const collection = batches.slice(pointer, pointer + +(machine.threads));
-			const request = message();
-			requests.push(request.then(batches => batches.reduce((a,batch) => a.concat(batch), [])));
-			pointer += collection.length;
-		}
-	}
-	return Promise.all(requests).then(results => {
-		return results.reduce((a,result) => a.concat(result), []);
-	});
-*/
-
-// Dist model: optimize batch size based on threads (greedy - distribute to more threads so long as time exceeds a basic run time threshold)
-// Loop through resources starting with local resource and assign batches to "used" threads
-
-/*
-
-distribute
-
-const resources = Array.from(container.querySelectorAll('[data-module="resource"]'))
-	.filter(resource => resource.dataset.frameworks.split(',').includes(framework))
-	.sort((a,b) => a.local || a.dataset.threads - b.dataset.threads); // Update data-threads with value of input[name="threads"]
-const threads = sum(resources.map(resource => +(resource.dataset.threads)));
-const jobs = [];
-const batches = batchJobs(jobs, threads);
-let pointer = 0;
-return Promise.all(resources.map(resource => resource.dispatchEvent(new CustomEvent('send', {detail: {type: 'request', user: resource.connection_id, data: batches.slice(pointer += +(resource.dataset.threads), +(resource.dataset.threads))}}))))
-	.then(results => results.reduce((a,result) => a.concat(result), []));
-
-*/
-
-const batchSet = (resources, framework, params_set, time, min_time = 1000) => {
-	const compatible_nodes = resources.filter(resource => resource.frameworks.split(',').includes(framework));
-	const free_threads = compatible_nodes.reduce((a,v) => a + +(v.threads), 0);
-	if (free_threads === 0)
-		return [[], []];
-	const n = Math.min(free_threads, Math.ceil(params_set.length * time / min_time), params_set.length);
-	const batch_size = Math.ceil(params_set.length / n);
-	const batches = range(0, n).map(i => params_set.slice(i * batch_size, (i + 1) * batch_size));
-	return [compatible_nodes, batches.filter(v => v.length > 0)];
+const batchJobs = (jobs, threads, time=100, min_time=1000) => {
+	const n = Math.min(threads, Math.ceil(jobs.length * time / min_time), jobs.length);
+	const batch_size = Math.ceil(jobs.length / n);
+	const batches = range(0, n).map(i => jobs.slice(i * batch_size, (i + 1) * batch_size));
+	return batches.filter(v => v.length > 0);
 };
 
-const distribute = async (options, _machines, request) => {
+const distribute = (container, request) => {
 	const {id, framework, sources, fixed_params, variable_params} = request;
-	const time = 100; // Time in milliseconds to complete single run, implement time estimation for multiple frameworks
-	const [machines, batches] = batchSet(_machines, framework, variable_params, time);
-	if (batches.length === 0)
+	const resources = Array.from(container.querySelectorAll('[data-module="resource"]'))
+		.filter(resource => resource.dataset.frameworks.split(',').includes(framework))
+		.sort((a,b) => a.local || b.dataset.used - a.dataset.used);
+	const threads = sum(resources.map(resource => +(resource.dataset.used)));
+	if (threads === 0)
 		throw 'No available threads';
-	document.querySelectorAll(`[data-job="${id}"]`).forEach(elem => elem.dispatchEvent(new CustomEvent('init', {detail: {batches: batches.length, time: Math.ceil(time * variable_params.length / batches.length)}})));
-	const requests = [];
+	const jobs = [];
+	const batches = batchJobs(variable_params, threads);
 	let pointer = 0;
-	while (pointer < batches.length) {
-		while (machines.length > 0 && pointer < batches.length) {
-			const machine = machines.shift();
-			const collection = batches.slice(pointer, pointer + +(machine.threads));
-			const request = machine.connection_id === 'local' ?
-				Promise.all(collection.map(batch => options.local_queue({framework, sources, fixed_params, variable_params: batch}).then(result => {
-					document.querySelectorAll(`[data-job="${id}"]`).forEach(elem => elem.dispatchEvent(new CustomEvent('progress', {detail: {processed: 1}})));
-					return result;
-				}))) :
-				wsRequest(options, machine, {framework, sources, fixed_params, collection}).then(results => {
-					document.querySelectorAll(`[data-job="${id}"]`).forEach(elem => elem.dispatchEvent(new CustomEvent('progress', {detail: {processed: collection.length}})));
-					return results;
-				});
-			requests.push(request.then(batches => batches.reduce((a,batch) => a.concat(batch), [])));
-			pointer += collection.length;
-		}
-	}
-	return Promise.all(requests).then(results => {
-		document.querySelectorAll(`[data-job="${id}"]`).forEach(elem => elem.dispatchEvent(new CustomEvent('complete', {detail: {}})));
-		return results.reduce((a,result) => a.concat(result), []);
-	});
+	const request_id = generateID(8);
+	return Promise.all(resources.map(resource => new Promise(resolve => {
+			const available_threads = +(resource.dataset.used);
+			if (available_threads === 0 || pointer >= batches.length)
+				return resolve([]);
+			const request = {type: 'request', request_id, data: {framework, sources, fixed_params, collection: batches.slice(pointer, pointer + available_threads)}};
+			pointer += available_threads;
+			resource.addEventListener('message', e => {
+				const message = e.detail.message;
+				if (message.type === 'result' && message.request_id === request_id) {
+					const result = message.data.reduce((a,batch) => a.concat(batch), []);
+					resolve(result);
+				}
+			});
+			resource.dispatchEvent(new CustomEvent('send', {detail: request}));
+		})))
+		.then(results => results.reduce((a,result) => a.concat(result), []));
 };
 
 const addResource = (container, options, resource, duplicates=false) => {
@@ -154,7 +105,7 @@ const addResource = (container, options, resource, duplicates=false) => {
 		return;
 	container.querySelectorAll(`[data-machine_id="${resource.machine_id}"]`).forEach(item => item.remove());
 	const settings = cachedSettings();
-	addModule(container, 'resource', {resource, settings: settings[resource.machine_id], machine_id: resource.machine_id, connection_id: resource.connection_id});
+	addModule(container, 'resource', {resource, settings: settings[resource.machine_id], frameworks: resource.frameworks, machine_id: resource.machine_id, connection_id: resource.connection_id});
 };
 
 const addJobItem = (container, job) => {
@@ -176,27 +127,30 @@ export const apc = (env, {options}, elem, storage={}) => ({
 	render: async () => {
 		// Maybe move options initialization elsewhere
 		options.id = getID();
-		options.local_queue = workerQueue(elem, options);
-		options.local_resource = {machine_id: options.id, type: 'node', name: getName(), capacity: options.threads, cost: 0, time: 100, frameworks: options.frameworks.join(',')};
-		elem.innerHTML = `<a class="resources-icon" data-icon="n"></a><div class="resources-menu user-menu menu"><div class="tabs"><a data-tab="resources">Resources</a><a data-tab="jobs">Jobs</a></div><div class="resources" data-tab-content="resources"></div><div class="jobs" data-tab-content="jobs" data-empty="No jobs currently running"></div><div class="websocket"></div></div>`;
-		addModule(elem.querySelector('.websocket'), 'ws', {options: {url: options.url, getCredentials: options.getCredentials}, local: options.local_resource}, true);
+		storage.local_queue = workerQueue(elem, options);
+		storage.local_resource = {machine_id: options.id, type: 'node', name: getName(), capacity: options.threads, cost: 0, time: 100, frameworks: options.frameworks.join(',')};
+		elem.innerHTML = `<a class="resources-icon" data-icon="n"></a><div class="resources-menu user-menu menu"><div class="tabs"><a data-tab="resources">Resources</a><a data-tab="jobs">Jobs</a></div><div class="resources" data-tab-content="resources"></div><div class="jobs" data-tab-content="jobs" data-empty="No jobs currently running"></div><div class="websocket state-change"></div></div>`;
+		addModule(elem.querySelector('.websocket'), 'ws', {options: {url: options.url, getCredentials: options.getCredentials}, local: storage.local_resource}, true);
 		elem.dispatchEvent(new Event('init'));
 		elem.dispatchEvent(new Event('done'));
 	},
 	hooks: [
 		['[data-module="apc"]', 'init', e => {
-			addResource(elem.querySelector('[data-tab-content="resources"]'), options, Object.assign({}, options.local_resource, {connection_id: 'local'}), true);
+			addResource(elem.querySelector('[data-tab-content="resources"]'), options, Object.assign({}, storage.local_resource, {connection_id: 'local'}), true);
 			elem.querySelector('[data-tab]').click();
 		}],
 		['[data-module="apc"]', 'distribute', async e => {
-			const machines = Array.from(elem.querySelectorAll('[data-machine_id]')).map(v => Object.assign({}, v.dataset, {threads: v.querySelector('input.threads').value}));
-			addJobItem(elem.querySelector('[data-tab-content="jobs"]'), {job: e.detail.id, name: e.detail.name});
+			//addJobItem(elem.querySelector('[data-tab-content="jobs"]'), {job: e.detail.id, name: e.detail.name});
 			try {
-				const results = await distribute(options, machines, e.detail);
+				const results = await distribute(elem, e.detail);
 				e.detail.resolve(results);
 			} catch (err) {
 				e.detail.reject(err);
 			}
+		}],
+		['[data-module="apc"]', 'job', e => {
+			const request = e.detail.request;
+			Promise.all(request.data.collection.map(batch => storage.local_queue({framework: request.data.framework, sources: request.data.sources, fixed_params: request.data.fixed_params, variable_params: batch}))).then(e.detail.resolve);
 		}],
 		['[data-module="apc"]', 'resourcestatus', e => {
 			const active_threads = e.detail.workers.filter(v => v !== undefined).length;
@@ -205,7 +159,6 @@ export const apc = (env, {options}, elem, storage={}) => ({
 		}],
 		['[data-module="ws"]', 'message', e => {
 			const message = e.detail.message;
-			console.log(message);
 			switch(message.type) {
 				case 'resources':
 					return message.data.forEach(resource => addResource(elem.querySelector('[data-tab-content="resources"]'), options, resource));

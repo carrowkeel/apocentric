@@ -14,7 +14,7 @@ const processMessage = (container, ws, message_data) => {
 };
 */
 
-export const resource = (env, {resource, settings}, elem, storage={}) => ({
+export const resource = (env, {resource, settings, queue}, elem, storage={}) => ({
 	render: async () => {
 		const threads = settings ? settings.used : (resource.cost > 0 ? 0 : resource.capacity);
 		const frameworks = resource.frameworks.split(',').map(framework => `<a data-framework="${framework}">.${framework}</a>`).join('');
@@ -33,29 +33,32 @@ export const resource = (env, {resource, settings}, elem, storage={}) => ({
 		}],
 		['[data-module="resource"]', 'processrtc', async e => {
 			const connection_id = e.target.dataset.connection_id;
-			console.log(e.detail);
-			if (!e.target.querySelector('[data-module="rtc"]'))
-				await addModule(e.target, 'rtc', {connection_id});
-			e.target.querySelector('[data-module="rtc"]').dispatchEvent(new CustomEvent('receivedata', {detail: e.detail}));
+			if (!e.target.querySelector('[data-module="rtc"]') && e.detail.type === 'offer') // Only offer can initiate rtc, need to check if this will make ice candidates get lost
+				addModule(e.target, 'rtc', {connection_id, rtc_data: e.detail});
+			else
+				e.target.querySelector('[data-module="rtc"]').dispatchEvent(new CustomEvent('receivedata', {detail: e.detail}));
+			
 		}],
 		['[data-module="resource"]', 'send', e => {
-			if (e.target.dataset.connectionId === 'local')
-				return;
+			if (e.target.dataset.connection_id === 'local')
+				return elem.dispatchEvent(new CustomEvent('message', {detail: {message: e.detail}}));
 			if (e.target.querySelector('[data-module="rtc"]') && e.target.querySelector('[data-module="rtc"]').dataset.status === 'connected')
 				return e.target.querySelector('[data-module="rtc"]').dispatchEvent(new CustomEvent('send', {detail: e.detail}));
 			// Locate ws element...
 			const ws = e.target.closest('.apocentric').querySelector('[data-module="ws"]');
 			// Decide where to handle problems with data unsuitable to be sent via WebSocket (i.e. too big)
-			ws.dispatchEvent(new CustomEvent('send', {detail: e.detail}));
+			ws.dispatchEvent(new CustomEvent('send', {detail: Object.assign(e.detail, {user: e.target.dataset.connection_id})}));
 		}],
 		['[data-module="resource"]', 'message', e => {
 			const message = e.detail.message;
-			console.log(message);
 			switch(message.type) {
 				case 'rtc':
-					return elem.dispatchEvent(new CustomEvent('processrtc', {detail: message.data})); // Remove later
-				default:
-					console.log(e);
+					return elem.dispatchEvent(new CustomEvent('processrtc', {detail: message.data}));
+				case 'request': { // Should this be here or in apc
+					return new Promise((resolve, reject) => {
+						elem.closest('[data-module="apc"]').dispatchEvent(new CustomEvent('job', {detail: {request: message, resolve}}));
+					}).then(result => elem.dispatchEvent(new CustomEvent('send', {detail: {type: 'result', request_id: message.request_id, data: result}})));
+				}
 			}
 		}],
 		['[data-module="rtc"]', 'connected', e => {
@@ -71,7 +74,7 @@ export const resource = (env, {resource, settings}, elem, storage={}) => ({
 			//e.target.closest('[data-connection_id]').classList.toggle('disabled');
 		}],
 		['.resources-menu .threads', 'focusout', e => {
-			e.target.closest('[data-module="resource"]').dataset.threads = e.target.value;
+			e.target.closest('[data-module="resource"]').dataset.used = e.target.value;
 			const machines = Array.from(e.target.closest('.apocentric').querySelectorAll('[data-machine_id]')).reduce((a,machine) => Object.assign(a, {[machine.dataset.machine_id]: {used: +(machine.querySelector('input.threads').value)}}), {});
 			// Update settings in apc
 			// cachedSettings({machines});
