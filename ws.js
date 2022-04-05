@@ -69,23 +69,6 @@ const connectWebSocket = (container, url, receiving = []) => {
 	return ws;
 };
 
-/*
-
-Message structure
-
-WS:
-{user: connection_id, type: 'request', parts: 1, compression: 'gzip', data: bytes} (JSON string)
-{user: connection_id, type: 'request', request_id: 'abc', parts: 10, part: 1, compression: 'gzip', data: bytes} (JSON string)
-Resource:
-{type: 'request', data: {}}
-
-RTC:
-{type: 'request', data: {}} (JSON string)
-Resource:
-{type: 'request', data: {}}
-
-*/
-
 export const ws = (env, {options, local}, elem, storage={receiving: []}) => ({
 	render: async () => {
 		elem.innerHTML = `<a class="connect" data-icon="n">Connect</a>`; // cachedSettings().connected for autoconnect
