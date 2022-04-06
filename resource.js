@@ -75,7 +75,7 @@ export const resource = (env, {resource, settings, queue}, elem, storage={}) => 
 		}],
 		['.resources-menu .threads', 'focusout', e => {
 			e.target.closest('[data-module="resource"]').dataset.used = e.target.value;
-			const machines = Array.from(e.target.closest('.apocentric').querySelectorAll('[data-machine_id]')).reduce((a,machine) => Object.assign(a, {[machine.dataset.machine_id]: {used: +(machine.querySelector('input.threads').value)}}), {});
+			// const machines = Array.from(e.target.closest('.apocentric').querySelectorAll('[data-machine_id]')).reduce((a,machine) => Object.assign(a, {[machine.dataset.machine_id]: {used: +(machine.querySelector('input.threads').value)}}), {});
 			// Update settings in apc
 			// cachedSettings({machines});
 		}]

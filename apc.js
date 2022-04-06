@@ -105,7 +105,7 @@ const addResource = (container, options, resource, duplicates=false) => {
 		return;
 	container.querySelectorAll(`[data-machine_id="${resource.machine_id}"]`).forEach(item => item.remove());
 	const settings = cachedSettings();
-	addModule(container, 'resource', {resource, settings: settings[resource.machine_id], frameworks: resource.frameworks, machine_id: resource.machine_id, connection_id: resource.connection_id});
+	addModule(container, 'resource', {resource, settings: settings.machines[resource.machine_id], frameworks: resource.frameworks, machine_id: resource.machine_id, connection_id: resource.connection_id});
 };
 
 const addJobItem = (container, job) => {

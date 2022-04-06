@@ -9,27 +9,6 @@ const decodeBase64 = base64 => {
 	return decoded;
 };
 
-const wsSend = async (ws, request, websocket_frame_limit = 30 * 1024, compression_threshold = 10 * 1024) => { // Fix issue with json encoding
-	const compressed = JSON.stringify(request.data).length > compression_threshold ? await compress(request.data) : request.data;
-	if (compressed.length > websocket_frame_limit) {
-		const parts = Math.ceil(compressed.length / websocket_frame_limit);
-		for (const part of range(0, parts))
-			ws.send(JSON.stringify(Object.assign(request, {part, parts, data: compressed.slice(part * websocket_frame_limit, (part + 1) * websocket_frame_limit)})));
-	} else
-		ws.send(JSON.stringify(Object.assign(request, {data: compressed})));
-};
-
-const wsReceiveParts = (ws, request_id, parts = []) => new Promise((resolve, reject) => {
-	ws.addEventListener('message', e => {
-		const message_data = JSON.parse(e.data);
-		if (message_data.request_id !== request_id)
-			return;
-		parts.push([message_data.part, message_data.data]);
-		if (message_data.parts === parts.length)
-			resolve(parts.sort((a,b) => a[0] - b[0]).map(v => v[1]).join(''));
-	});
-});
-
 const compress = async (data) => {
 	const {pako} = await import('./pako.js');
 	const compressed = pako.gzip(JSON.stringify(data));
@@ -41,8 +20,30 @@ const decompress = async base64_compressed => {
 	return pako.ungzip(decodeBase64(base64_compressed), {to: 'string'});
 };
 
+const wsReceiveParts = (ws, request_id, parts = [], n = 0) => new Promise((resolve, reject) => {
+	ws.addEventListener('message', e => {
+		const message_data = JSON.parse(e.data);
+		if (message_data.request_id !== request_id)
+			return;
+		parts.push([message_data.part, message_data.data]);
+		if (message_data.parts === parts.length)
+			resolve(parts.sort((a,b) => a[0] - b[0]).map(v => v[1]).join(''));
+	});
+});
+
+const wsSend = async (ws, request, websocket_frame_limit = 30 * 1024, compression_threshold = 10 * 1024) => { // Fix issue with json encoding
+	const compression_type = JSON.stringify(request.data).length > compression_threshold ? 'gzip' : 'none';
+	const compressed = compression_type === 'gzip' ? await compress(request.data) : request.data;
+	if (compressed.length > websocket_frame_limit) { // This is only relevant for JSON encoded because compressed can be an object, fix
+		const parts = Math.ceil(compressed.length / websocket_frame_limit);
+		for (const part of range(0, parts))
+			ws.send(JSON.stringify(Object.assign(request, {part, parts, compression: compression_type, data: compressed.slice(part * websocket_frame_limit, (part + 1) * websocket_frame_limit)})));
+	} else
+		ws.send(JSON.stringify(Object.assign(request, {compression: compression_type, data: compressed})));
+};
+
 const decodeMessage = async (ws, message_data, receiving) => {
-	const compressed = message_data.parts > 1 && message_data.request_id ? wsReceiveParts(ws, receiving.push(message_data.request_id), [message_data.part, message_data.data]) : message_data.data; // Maybe some redundancy here, what is in parts is definitely compressed
+	const compressed = message_data.parts > 1 && message_data.request_id ? await wsReceiveParts(ws, message_data.request_id, [[message_data.part, message_data.data]], receiving.push(message_data.request_id)) : message_data.data; // Maybe some redundancy here, what is in parts is definitely compressed
 	const decompressed = message_data.compression === 'gzip' ? parseJSON(await decompress(compressed)) : compressed;
 	return Object.assign(message_data, {data: decompressed});
 };

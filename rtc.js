@@ -1,5 +1,55 @@
 
-const handleChannelStatus = (rtc_elem, event, user) => {
+const range = (start,end) => Array.from(Array(end-start)).map((v,i)=>i+start);
+
+const decodeBase64 = base64 => {
+	const binary = atob(base64);
+	const decoded = new Uint8Array(binary.length);
+	for (const i in decoded)
+		decoded[i] = binary.charCodeAt(i);
+	return decoded;
+};
+
+const compress = (data) => {
+	const json_string = JSON.stringify(data);
+	return json_string;
+//	return btoa([].reduce.call(json_string, (p,c) => p+String.fromCharCode(c),''));
+}
+
+const decompress = base64 => {
+	return base64;
+	//return decodeBase64(base64);
+};
+
+const rtcReceiveParts = (channel, request_id, parts = [], n = 0) => new Promise((resolve, reject) => {
+	channel.addEventListener('message', e => { // Remove listener when resolved
+		const message_data = JSON.parse(e.data);
+		if (message_data.request_id !== request_id)
+			return;
+		parts.push([message_data.part, message_data.data]);
+		if (message_data.parts === parts.length)
+			resolve(parts.sort((a,b) => a[0] - b[0]).map(v => v[1]).join(''));
+	});
+});
+
+const decodeMessage = async (channel, message_data, receiving) => {
+	const compressed = message_data.parts > 1 && message_data.request_id ? await rtcReceiveParts(channel, message_data.request_id, [[message_data.part, message_data.data]], receiving.push(message_data.request_id)) : message_data.data;
+	const decompressed = message_data.compression === 'base64' ? parseJSON(decompress(compressed)) : compressed;
+	return Object.assign(message_data, {data: decompressed});
+};
+
+const rtcSend = async (channel, request, rtc_message_limit = 100 * 1024) => { // The limit is higher so this could be increased
+	const compressed = compress(request.data);
+	if (compressed.length > rtc_message_limit) {
+		const parts = Math.ceil(compressed.length / rtc_message_limit);
+		for (const part of range(0, parts)) {
+			const data = JSON.stringify(Object.assign(request, {part, parts, compression: 'base64', data: compressed.slice(part * rtc_message_limit, (part + 1) * rtc_message_limit)}));
+			channel.send(data);
+		}
+	} else
+		channel.send(JSON.stringify(request));
+};
+
+const handleChannelStatus = (rtc_elem, event, user) => { // Fix inconsistency of using "event" vs "e" in this file
 	if (event.type === 'open') {
 		rtc_elem.dispatchEvent(new CustomEvent('channelconnected', {detail: {channel: event.target}}));
 	} else if (event.type === 'close') {
@@ -7,17 +57,21 @@ const handleChannelStatus = (rtc_elem, event, user) => {
 	}
 };
 
-const addDataChannel = (rtc_elem, event, user, _channel) => {
+const addDataChannel = (rtc_elem, event, user, receiving, _channel) => {
 	const channel = _channel || event.channel;
-	channel.addEventListener('message', event => receiveMessage(rtc_elem, event, user));
+	channel.addEventListener('message', event => receiveMessage(rtc_elem, event, user, receiving));
 	channel.addEventListener('open', event => handleChannelStatus(rtc_elem, event, user));
 	channel.addEventListener('close', event => handleChannelStatus(rtc_elem, event, user));
 	return channel;
 };
 
-const receiveMessage = (rtc_elem, event, user) => {
-	const data = JSON.parse(event.data);
-	rtc_elem.dispatchEvent(new CustomEvent('message', {detail: {message: data}}));
+const receiveMessage = async (rtc_elem, event, user, receiving) => {
+	const message_data = parseJSON(event.data);
+	if (message_data.request_id && receiving.includes(message_data.request_id))
+		return;
+	const channel = event.target;
+	const message = await decodeMessage(channel, message_data, receiving);
+	rtc_elem.dispatchEvent(new CustomEvent('message', {detail: {message}}));
 };
 
 const sendCandidate = (resource, event, user) => {
@@ -44,7 +98,7 @@ const handleConnectionState = async (connection, event, user) => {
 		connection.restartIce();
 };
 
-const createPeerConnection = (rtc_elem, resource, user, ice_queue, active = true) => {
+const createPeerConnection = (rtc_elem, resource, user, ice_queue, receiving, active = true) => {
 	const google_stun = {
 		urls: [
 			'stun:stun.l.google.com:19302',
@@ -61,9 +115,9 @@ const createPeerConnection = (rtc_elem, resource, user, ice_queue, active = true
 	connection.addEventListener('iceconnectionstatechange', event => handleConnectionState(connection, event, user));
 	connection.addEventListener('icegatheringstatechange', event => processIceQueue(connection, ice_queue));
 	if (active)
-		addDataChannel(rtc_elem, undefined, user, connection.createDataChannel(user));
+		addDataChannel(rtc_elem, undefined, user, receiving, connection.createDataChannel(user));
 	else
-		connection.addEventListener('datachannel', event => addDataChannel(rtc_elem, event, user));
+		connection.addEventListener('datachannel', event => addDataChannel(rtc_elem, event, user, receiving));
 	return connection;
 };
 
@@ -108,7 +162,7 @@ const process = async (resource, user, connection, ice_queue, rtc_data) => {
 };
 
 // Missing: configuration for local STUN server
-export const rtc = (env, {connection_id: ws_connection_id, rtc_data}, elem, storage={ice_queue: []}) => ({
+export const rtc = (env, {connection_id: ws_connection_id, rtc_data}, elem, storage={ice_queue: [], receiving: []}) => ({
 	render: async () => {
 		if (rtc_data)
 			elem.dispatchEvent(new CustomEvent('receivedata', {detail: rtc_data}));
@@ -117,13 +171,13 @@ export const rtc = (env, {connection_id: ws_connection_id, rtc_data}, elem, stor
 	hooks: [
 		['[data-module="rtc"]', 'connect', async e => {
 			const resource = e.target.closest('[data-module="resource"]');
-			storage.peer_connection = createPeerConnection(elem, resource, ws_connection_id, storage.ice_queue); // Find a way to have this not in storage
+			storage.peer_connection = createPeerConnection(elem, resource, ws_connection_id, storage.ice_queue, storage.receiving); // Find a way to have this not in storage
 			sendOffer(resource, ws_connection_id, storage.peer_connection);
 		}],
 		['[data-module="rtc"]', 'receivedata', e => {
 			const resource = e.target.closest('[data-module="resource"]');
 			if (!storage.peer_connection)
-				storage.peer_connection = createPeerConnection(elem, resource, ws_connection_id, storage.ice_queue, false);
+				storage.peer_connection = createPeerConnection(elem, resource, ws_connection_id, storage.ice_queue, storage.receiving, false);
 			process(resource, ws_connection_id, storage.peer_connection, storage.ice_queue, e.detail);
 		}],
 		['[data-module="rtc"]', 'channelconnected', e => { // Update connection state
@@ -135,9 +189,8 @@ export const rtc = (env, {connection_id: ws_connection_id, rtc_data}, elem, stor
 			elem.dataset.status = 'disconnected';
 		}],
 		['[data-module="rtc"]', 'send', e => {
-			const data = JSON.stringify(e.detail);
 			try {
-				storage.channel.send(data);
+				rtcSend(storage.channel, e.detail);
 			} catch (e) {
 				console.log(e);
 			}
