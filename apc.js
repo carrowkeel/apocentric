@@ -169,7 +169,6 @@ export const apc = (env, {options}, elem, storage={}) => ({
 				default:
 					return elem.querySelector(`[data-module="resource"][data-connection_id="${message.user}"]`).dispatchEvent(new CustomEvent('message', {detail: e.detail}));
 			}
-			// Get connection_id, route to resource, consider resource listening to ws vs. ws passing on event to 
 			// Consider case where resource doesn't exist yet
 		}],
 		['.resources-menu [data-tab]', 'click', e => {
