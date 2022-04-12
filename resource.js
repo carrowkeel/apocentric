@@ -1,19 +1,4 @@
 
-/*
-const processMessage = (container, ws, message_data) => {
-	switch(message_data.type) {
-		case 'request':
-			if (receiving.includes(message_data.request_id))
-				return;
-			const request = message_data.parts && message_data.parts > 1 ? await wsReceiveParts(ws, 'request', message_data.request_id, [[message_data.part, message_data.data]]) : decodeWS(message_data.data);
-			Promise.all(request.collection ? request.collection.map(batch => options.local_queue({framework: request.framework, sources: request.sources, fixed_params: request.fixed_params, variable_params: batch})) : [options.local_queue(request)]).then(results => {
-				return wsSendParts(ws, {type: 'result', request_id: message_data.request_id, connection_id: message_data.connection_id, machine_id: options.id}, results);
-			});
-			break;
-	}
-};
-*/
-
 export const resource = (env, {resource, settings, queue}, elem, storage={}) => ({
 	render: async () => {
 		const threads = settings ? settings.used : (resource.cost > 0 ? 0 : resource.capacity);

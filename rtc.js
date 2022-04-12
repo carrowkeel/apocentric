@@ -1,25 +1,6 @@
 
 const range = (start,end) => Array.from(Array(end-start)).map((v,i)=>i+start);
 
-const decodeBase64 = base64 => {
-	const binary = atob(base64);
-	const decoded = new Uint8Array(binary.length);
-	for (const i in decoded)
-		decoded[i] = binary.charCodeAt(i);
-	return decoded;
-};
-
-const compress = (data) => {
-	const json_string = JSON.stringify(data);
-	return json_string;
-//	return btoa([].reduce.call(json_string, (p,c) => p+String.fromCharCode(c),''));
-}
-
-const decompress = base64 => {
-	return base64;
-	//return decodeBase64(base64);
-};
-
 const rtcReceiveParts = (channel, request_id, parts = [], n = 0) => new Promise((resolve, reject) => {
 	channel.addEventListener('message', e => { // Remove listener when resolved
 		const message_data = JSON.parse(e.data);
@@ -33,16 +14,16 @@ const rtcReceiveParts = (channel, request_id, parts = [], n = 0) => new Promise(
 
 const decodeMessage = async (channel, message_data, receiving) => {
 	const compressed = message_data.parts > 1 && message_data.request_id ? await rtcReceiveParts(channel, message_data.request_id, [[message_data.part, message_data.data]], receiving.push(message_data.request_id)) : message_data.data;
-	const decompressed = message_data.compression === 'base64' ? parseJSON(decompress(compressed)) : compressed;
+	const decompressed = message_data.compression === 'json' ? parseJSON(compressed) : compressed;
 	return Object.assign(message_data, {data: decompressed});
 };
 
 const rtcSend = async (channel, request, rtc_message_limit = 100 * 1024) => { // The limit is higher so this could be increased
-	const compressed = compress(request.data);
+	const compressed = JSON.stringify(request.data);
 	if (compressed.length > rtc_message_limit) {
 		const parts = Math.ceil(compressed.length / rtc_message_limit);
 		for (const part of range(0, parts)) {
-			const data = JSON.stringify(Object.assign(request, {part, parts, compression: 'base64', data: compressed.slice(part * rtc_message_limit, (part + 1) * rtc_message_limit)}));
+			const data = JSON.stringify(Object.assign(request, {part, parts, compression: 'json', data: compressed.slice(part * rtc_message_limit, (part + 1) * rtc_message_limit)}));
 			channel.send(data);
 		}
 	} else
