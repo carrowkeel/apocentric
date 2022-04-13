@@ -42,7 +42,12 @@ export const resource = (env, {resource, settings, queue}, elem, storage={}) => 
 				case 'request': { // Should this be here or in apc
 					return new Promise((resolve, reject) => {
 						elem.closest('[data-module="apc"]').dispatchEvent(new CustomEvent('job', {detail: {request: message, resolve}}));
-					}).then(result => elem.dispatchEvent(new CustomEvent('send', {detail: {type: 'result', request_id: message.request_id, data: result}})));
+					}).then(result => {
+						if (result instanceof ReadableStream)
+							console.log(result.getReader());
+						else
+							elem.dispatchEvent(new CustomEvent('send', {detail: {type: 'result', request_id: message.request_id, data: result}}));
+					});
 				}
 			}
 		}],
