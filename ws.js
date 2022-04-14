@@ -32,6 +32,8 @@ const wsReceiveParts = (ws, request_id, parts = [], n = 0) => new Promise((resol
 });
 
 const wsSend = async (ws, request, websocket_frame_limit = 30 * 1024, compression_threshold = 10 * 1024) => { // Fix issue with json encoding
+	if (request.data instanceof ReadableStream) // For the moment, do not transmit stream data via websocket (an alternative is to turn the stream into chunks)
+		throw 'Attempting to transmit stream via WebSocket';
 	const compression_type = JSON.stringify(request.data).length > compression_threshold ? 'gzip' : 'none';
 	const compressed = compression_type === 'gzip' ? await compress(request.data) : request.data;
 	if (compressed.length > websocket_frame_limit) { // This is only relevant for JSON encoded because compressed can be an object, fix

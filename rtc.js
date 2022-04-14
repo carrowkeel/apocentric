@@ -169,12 +169,19 @@ export const rtc = (env, {connection_id: ws_connection_id, rtc_data}, elem, stor
 		['[data-module="rtc"]', 'channeldisconnected', e => {
 			elem.dataset.status = 'disconnected';
 		}],
-		['[data-module="rtc"]', 'send', e => {
-			try {
-				rtcSend(storage.channel, e.detail);
-			} catch (e) {
-				console.log(e);
-			}
+		['[data-module="rtc"]', 'send', async e => {
+			// Move stream handling elsewhere
+			const request = e.detail;
+			if (request.data instanceof ReadableStream) {
+				const reader = request.data.getReader();
+				while(true) {
+					const {value, done} = await reader.read();
+					rtcSend(storage.channel, Object.assign({}, request, {data: done ? {stream_closed: true} : value}));
+					if (done)
+						break;
+				}
+			} else
+				rtcSend(storage.channel, request);
 		}],
 		['[data-module="rtc"]', 'message', e => {
 			elem.closest('[data-module="resource"]').dispatchEvent(new CustomEvent('message', {detail: e.detail}));

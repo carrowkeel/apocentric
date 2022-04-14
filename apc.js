@@ -26,7 +26,8 @@ const spawnWorker = (options, workers, i, request, stream) => new Promise(resolv
 			case 'dynamics':
 				return stream(message.data);
 			default:
-				resolve(e.data);
+				stream(false);
+				resolve(message.data);
 		}
 	});
 });
@@ -76,25 +77,42 @@ const batchJobs = (jobs, threads, time=100, min_time=1000) => {
 	return batches.filter(v => v.length > 0);
 };
 
-const distributeDynamics = (container, params) => {
+const distributeDynamics = (container, request) => new Promise((resolve, reject) => {
+	const {framework, sources, params} = request;
 	const resources = Array.from(container.querySelectorAll('[data-module="resource"]'))
 		.filter(resource => resource.dataset.used > 0 && resource.dataset.frameworks.split(',').includes(framework))
-		.sort((a,b) => a.local || b.dataset.used - a.dataset.used);
+		.sort((a,b) => resource.dataset.connection_id === 'local' || b.dataset.used - a.dataset.used);
 	if (resources.length === 0)
 		throw 'No available threads';
 	const resource = resources[0]; // Just use first resource for the moment
-	const request = {type: 'request', request_id: generateID(8), data: {framework, sources, fixed_params, collection: batches.slice(pointer, pointer + available_threads)}};
-	resource.dispatchEvent(new CustomEvent('send', {detail: request}));
-	return new ReadableStream({
-		start(controller) {
-			resource.addEventListener('message', message => {
-				const message = e.detail.message;
-				if (message.type === 'result' && message.request_id === request.request_id)
-					controller.enqueue(message.data);
-			});
-		}
-	});
-};
+	const request_id = generateID(8);
+	resource.dispatchEvent(new CustomEvent('send', {detail: {type: 'request', request_id, data: {framework, sources, fixed_params: params}}}));
+	if (resource.dataset.connection_id === 'local') {
+		resource.addEventListener('message', e => {
+			const message = e.detail.message;
+			if (message.type !== 'result' || message.request_id !== request_id)
+				return;
+			if (message.data instanceof ReadableStream)
+				resolve(message.data);
+			else
+				reject(`Incorrect result data format: ${typeof message.data}`);
+		});
+	} else {
+		resolve(new ReadableStream({
+			start(controller) {
+				resource.addEventListener('message', e => {
+					const message = e.detail.message;
+					if (message.type !== 'result' || message.request_id !== request_id)
+						return;
+					if (message.data?.stream_closed)
+						controller.close();
+					else
+						controller.enqueue(message.data);
+				});
+			}
+		}));
+	}
+});
 
 const distribute = (container, request) => {
 	const {id, framework, sources, fixed_params, variable_params} = request;
@@ -166,8 +184,7 @@ export const apc = (env, {options}, elem, storage={}) => ({
 			elem.querySelector('[data-tab]').click();
 		}],
 		['[data-module="apc"]', 'dynamics', async e => {
-			const stream = distributeDynamics(elem, e.detail.params);
-			e.detail.resolve(stream);
+			e.detail.resolve(distributeDynamics(elem, e.detail.request));
 		}],
 		['[data-module="apc"]', 'distribute', async e => {
 			//addJobItem(elem.querySelector('[data-tab-content="jobs"]'), {job: e.detail.id, name: e.detail.name});
@@ -188,10 +205,10 @@ export const apc = (env, {options}, elem, storage={}) => ({
 				default:
 					const dynamics_stream = new ReadableStream({
 						start(controller) {
-							storage.local_queue(request.data, controller.enqueue); // Check if it is fine to simply send the whole request
-							e.detail.resolve(dynamics_stream);
+							storage.local_queue(request.data, (data) => data ? controller.enqueue(data) : controller.close());
 						}
 					});
+					e.detail.resolve(dynamics_stream);
 			}
 		}],
 		['[data-module="apc"]', 'resourcestatus', e => {
