@@ -32,7 +32,7 @@ const spawnWorker = (options, workers, i, request, stream) => new Promise(resolv
 	});
 });
 
-const workerQueue = (container, options, workers=Array.from(new Array(options.threads)), queue=[]) => (request, stream) => {
+const workerQueue = (container, options, workers=Array.from(new Array(options.threads)), queue=[]) => (request, stream=()=>{}) => {
 	container.dispatchEvent(new CustomEvent('resourcestatus', {detail: {workers, threads: options.threads}}));
 	const deploy = (workers, thread) => spawnWorker(options, workers, thread, request, stream).then(result => {
 		if (queue.length > 0) {
