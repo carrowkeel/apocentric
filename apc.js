@@ -58,7 +58,7 @@ const getID = () => {
 	if (localStorage.getItem('apc_machine_id'))
 		return localStorage.getItem('apc_machine_id');
 	const id = generateID(6);
-	localStorage.setItem('apc_machine_id', id)
+	localStorage.setItem('apc_machine_id', id);
 	return id;
 };
 
@@ -66,7 +66,7 @@ const getName = () => {
 	if (localStorage.getItem('apc_machine_name'))
 		return localStorage.getItem('apc_machine_name');
 	const name = 'node';
-	localStorage.setItem('apc_machine_name', name)
+	localStorage.setItem('apc_machine_name', name);
 	return name;
 };
 
@@ -81,7 +81,7 @@ const distributeDynamics = (container, request) => new Promise((resolve, reject)
 	const {framework, sources, params} = request;
 	const resources = Array.from(container.querySelectorAll('[data-module="resource"]'))
 		.filter(resource => resource.dataset.used > 0 && resource.dataset.frameworks.split(',').includes(framework))
-		.sort((a,b) => resource.dataset.connection_id === 'local' || b.dataset.used - a.dataset.used);
+		.sort((a,b) => b.dataset.connection_id === 'local' || b.dataset.used - a.dataset.used);
 	if (resources.length === 0)
 		throw 'No available threads';
 	const resource = resources[0]; // Just use first resource for the moment
