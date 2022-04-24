@@ -7,7 +7,7 @@ export const resource = (env, {resource, settings, queue}, elem, storage={}) => 
 		//elem.dataset.status = settings ? settings.status : 0;
 		elem.dataset.connectionStatus = 1;
 		elem.dataset.used = threads;
-		elem.innerHTML = `<div class="details"><a class="name">${resource.name === 'node' ? resource.machine_id : resource.name}</a><div class="frameworks">${frameworks}</div></div><input class="threads" placeholder="${resource.capacity}" value="${threads}"><div class="clear"></div>`;
+		elem.innerHTML = `<div class="details"><a class="name">${resource.connection_id === 'local' ? 'Local' : resource.name === 'node' ? resource.machine_id : resource.name}</a><div class="frameworks">${frameworks}</div></div><input class="threads" placeholder="${resource.capacity}" value="${threads}"><div class="clear"></div>`;
 		elem.dispatchEvent(new Event('init'));
 		elem.dispatchEvent(new Event('done'));
 	},
