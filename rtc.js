@@ -66,7 +66,7 @@ const processIceQueue = async (connection, queue) => {
 		try {
 			await connection.addIceCandidate(queue.shift());
 		} catch (e) {
-			console.log(e);
+			//console.log(e);
 		}
 	}
 };
@@ -91,7 +91,7 @@ const createPeerConnection = (rtc_elem, resource, user, ice_queue, receiving, ac
 	};
 	const connection = new RTCPeerConnection({iceServers: [google_stun]});
 	connection.addEventListener('icecandidate', event => sendCandidate(resource, event, user));
-	connection.addEventListener('icecandidateerror', event => console.log(event));
+	//connection.addEventListener('icecandidateerror', event => console.log(event));
 	connection.addEventListener('signalingstatechange', event => handleSignalingState(connection, event, user));
 	connection.addEventListener('iceconnectionstatechange', event => handleConnectionState(connection, event, user));
 	connection.addEventListener('icegatheringstatechange', event => processIceQueue(connection, ice_queue));
@@ -115,7 +115,6 @@ const processAnswer = (connection, answer) => {
 		return console.log(`Setting answer with ${connection ? connection.signalingState : 'no client'} state`, 'RTC process answer');
 	connection.setRemoteDescription(answer)
 		.catch(e => {
-			console.log(e, 'RTC process answer');
 			connection.restartIce();
 		});
 };

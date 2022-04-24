@@ -32,7 +32,7 @@ const spawnWorker = (options, workers, i, request, stream) => new Promise(resolv
 	});
 });
 
-const workerQueue = (container, options, workers=Array.from(new Array(options.threads)), queue=[]) => (request, stream, stream=()=>{}) => {
+const workerQueue = (container, options, workers=Array.from(new Array(options.threads)), queue=[]) => (request, stream=()=>{}) => {
 	container.dispatchEvent(new CustomEvent('resourcestatus', {detail: {workers, threads: options.threads}}));
 	const deploy = (workers, thread) => spawnWorker(options, workers, thread, request, stream).then(result => {
 		if (queue.length > 0) {
@@ -149,7 +149,7 @@ const addResource = (container, options, resource, duplicates=false) => {
 		return;
 	const current = container.querySelectorAll(`[data-machine_id="${resource.machine_id}"]`);
 	if (current.length > 0)
-		return current.forEach(resource => resource.dispatchEvent(new Event('connected')));
+		return current.forEach(elem => elem.dispatchEvent(new CustomEvent('wsconnected', {detail: {connection_id: resource.connection_id}})));
 	const settings = cachedSettings();
 	addModule(container, 'resource', {resource, settings: settings.machines[resource.machine_id], frameworks: resource.frameworks, machine_id: resource.machine_id, connection_id: resource.connection_id});
 };
@@ -218,6 +218,9 @@ export const apc = (env, {options}, elem, storage={}) => ({
 			const used = active_threads / e.detail.threads;
 			elem.querySelector('.resources-icon').dataset.notify = active_threads;
 		}],
+		['[data-module="ws"]', 'disconnected', e => {
+			elem.querySelectorAll(`[data-module="resource"]:not([data-connection_id="local"])`).forEach(resource => resource.dispatchEvent(new Event('wsdisconnected')));
+		}],
 		['[data-module="ws"]', 'message', e => {
 			const message = e.detail.message;
 			switch(message.type) {
@@ -226,7 +229,7 @@ export const apc = (env, {options}, elem, storage={}) => ({
 				case 'connected':
 					return addResource(elem.querySelector('[data-tab-content="resources"]'), options, message.data);
 				case 'disconnected':
-					return elem.querySelectorAll(`[data-module="resource"][data-connection_id="${message.connection_id}"]`).forEach(resource => resource.dispatchEvent(new Event('disconnected')));
+					return elem.querySelectorAll(`[data-module="resource"][data-connection_id="${message.connection_id}"]`).forEach(resource => resource.dispatchEvent(new Event('wsdisconnected')));
 				default:
 					return elem.querySelector(`[data-module="resource"][data-connection_id="${message.user}"]`).dispatchEvent(new CustomEvent('message', {detail: e.detail}));
 			}

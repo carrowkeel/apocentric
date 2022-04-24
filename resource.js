@@ -1,19 +1,28 @@
 
 export const resource = (env, {resource, settings, queue}, elem, storage={}) => ({
 	render: async () => {
-		const threads = settings ? settings.used : (resource.cost > 0 ? 0 : resource.capacity);
+		const threads = settings ? settings.used : resource.capacity;
 		const frameworks = resource.frameworks.split(',').map(framework => `<a data-framework="${framework}">.${framework}</a>`).join('');
 		elem.classList.add('item'); // Temp
-		elem.dataset.status = settings ? settings.status : 0;
+		//elem.dataset.status = settings ? settings.status : 0;
+		elem.dataset.connectionStatus = 1;
 		elem.dataset.used = threads;
-		elem.innerHTML = `<div class="details"><a class="name">${resource.name === 'node' ? resource.machine_id : resource.name}</a><div class="cost" data-cost="${resource.cost}">\$${resource.cost}/min</div><div class="frameworks">${frameworks}</div></div><input class="threads" placeholder="${resource.capacity}" value="${threads}"><div class="clear"></div>`;
+		elem.innerHTML = `<div class="details"><a class="name">${resource.name === 'node' ? resource.machine_id : resource.name}</a><div class="frameworks">${frameworks}</div></div><input class="threads" placeholder="${resource.capacity}" value="${threads}"><div class="clear"></div>`;
 		elem.dispatchEvent(new Event('init'));
 		elem.dispatchEvent(new Event('done'));
 	},
 	hooks: [
-		['[data-module="resource"]', 'connected', async e => {
+		['[data-module="resource"]', 'init', e => {
+			if (elem.dataset.connection_id !== 'local')
+				elem.dispatchEvent(new Event('establishrtc'));
 		}],
-		['[data-module="resource"]', 'disconnected', async e => {
+		['[data-module="resource"]', 'wsconnected', async e => {
+			if (e.detail?.connection_id)
+				elem.dataset.connection_id = e.detail.connection_id;
+			elem.dataset.connectionStatus |= 1;
+		}],
+		['[data-module="resource"]', 'wsdisconnected', async e => {
+			elem.dataset.connectionStatus &= ~1;
 		}],
 		['[data-module="resource"]', 'establishrtc', async e => {
 			const connection_id = e.target.dataset.connection_id;
@@ -51,7 +60,7 @@ export const resource = (env, {resource, settings, queue}, elem, storage={}) => 
 			}
 		}],
 		['[data-module="rtc"]', 'connected', e => {
-			elem.classList.add('rtc');
+			elem.dataset.connectionStatus |= 2;
 		}],
 		['.apocentric', 'resourcestatus', e => {
 			const active_threads = e.detail.workers.filter(v => v !== undefined).length;
@@ -59,7 +68,7 @@ export const resource = (env, {resource, settings, queue}, elem, storage={}) => 
 			e.target.closest('.apocentric').querySelector('.resources-icon').dataset.notify = active_threads;
 		}],
 		['.resources-menu .name', 'click', e => {
-			elem.dispatchEvent(new Event('establishrtc'));
+			//elem.dispatchEvent(new Event('establishrtc'));
 			//e.target.closest('[data-connection_id]').classList.toggle('disabled');
 		}],
 		['.resources-menu .threads', 'focusout', e => {

@@ -59,8 +59,8 @@ const connectWebSocket = (container, url, receiving = []) => {
 		container.dispatchEvent(new Event('disconnected'));
 	});
 	ws.addEventListener('error', error => {
-		console.log(error);
 		container.dispatchEvent(new CustomEvent('error', {detail: {error}}));
+		container.dispatchEvent(new Event('disconnected'));
 	});
 	ws.addEventListener('message', async e => {
 		const message_data = parseJSON(e.data);
@@ -82,7 +82,7 @@ export const ws = (env, {options, local}, elem, storage={receiving: []}) => ({
 	},
 	hooks: [
 		['[data-module="ws"]', 'connect', e => {
-			if (storage.ws && storage.ws.readyState > 1)
+			if (storage.ws && storage.ws.readyState <= 1)
 				return; // Possibly check if status is "connecting"
 			const token = options.getCredentials('token');
 			if (!token)
@@ -92,14 +92,21 @@ export const ws = (env, {options, local}, elem, storage={receiving: []}) => ({
 			elem.querySelector('.connect').textContent = 'Connecting';
 			storage.ws = connectWebSocket(elem, `${options.url}/?${params.toString()}`);
 		}],
+		['[data-module="ws"]', 'disconnect', e => {
+			if (!storage.ws)
+				return;
+			elem.dataset.status = 'disconnected';
+			elem.querySelector('.connect').textContent = 'Connect';
+			storage.ws.close();
+		}],
 		['[data-module="ws"]', 'connected', e => {
 			elem.dataset.status = 'connected';
 			elem.querySelector('.connect').textContent = 'Connected';
 			elem.dispatchEvent(new CustomEvent('send', {detail: {type: 'connected', data: local}}));
 		}],
 		['[data-module="ws"]', 'disconnected', e => {
-			if (elem.dataset.status === 'connected') // Check why it disconnected
-				elem.dispatchEvent(new Event('connect'));
+			if (elem.dataset.status !== 'disconnected') // Check why it disconnected
+				return elem.dispatchEvent(new Event('connect'));
 			elem.dataset.status = 'disconnected';
 			elem.querySelector('.connect').textContent = 'Connect';
 		}],
@@ -115,8 +122,7 @@ export const ws = (env, {options, local}, elem, storage={receiving: []}) => ({
 				elem.dispatchEvent(new Event('connect'));
 			} else {
 				//cachedSettings({connected: false});
-				storage.ws.close();
-				elem.dispatchEvent(new Event('disconnected'));
+				elem.dispatchEvent(new Event('disconnect'));
 			}
 		}],
 	]
