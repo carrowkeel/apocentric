@@ -32,7 +32,7 @@ const spawnWorker = (options, workers, i, request, stream) => new Promise(resolv
 	});
 });
 
-const workerQueue = (container, options, workers=Array.from(new Array(options.threads)), queue=[]) => (request, stream) => {
+const workerQueue = (container, options, workers=Array.from(new Array(options.threads)), queue=[]) => (request, stream, stream=()=>{}) => {
 	container.dispatchEvent(new CustomEvent('resourcestatus', {detail: {workers, threads: options.threads}}));
 	const deploy = (workers, thread) => spawnWorker(options, workers, thread, request, stream).then(result => {
 		if (queue.length > 0) {
@@ -147,7 +147,9 @@ const distribute = (container, request) => {
 const addResource = (container, options, resource, duplicates=false) => {
 	if (!duplicates && (resource.machine_id === options.id))
 		return;
-	container.querySelectorAll(`[data-machine_id="${resource.machine_id}"]`).forEach(item => item.remove());
+	const current = container.querySelectorAll(`[data-machine_id="${resource.machine_id}"]`);
+	if (current.length > 0)
+		return current.forEach(resource => resource.dispatchEvent(new Event('connected')));
 	const settings = cachedSettings();
 	addModule(container, 'resource', {resource, settings: settings.machines[resource.machine_id], frameworks: resource.frameworks, machine_id: resource.machine_id, connection_id: resource.connection_id});
 };
@@ -224,7 +226,7 @@ export const apc = (env, {options}, elem, storage={}) => ({
 				case 'connected':
 					return addResource(elem.querySelector('[data-tab-content="resources"]'), options, message.data);
 				case 'disconnected':
-					return elem.querySelectorAll(`[data-module="resource"][data-connection_id="${message.connection_id}"]`).forEach(item => item.remove());
+					return elem.querySelectorAll(`[data-module="resource"][data-connection_id="${message.connection_id}"]`).forEach(resource => resource.dispatchEvent(new Event('disconnected')));
 				default:
 					return elem.querySelector(`[data-module="resource"][data-connection_id="${message.user}"]`).dispatchEvent(new CustomEvent('message', {detail: e.detail}));
 			}

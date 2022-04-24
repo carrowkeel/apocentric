@@ -11,6 +11,10 @@ export const resource = (env, {resource, settings, queue}, elem, storage={}) => 
 		elem.dispatchEvent(new Event('done'));
 	},
 	hooks: [
+		['[data-module="resource"]', 'connected', async e => {
+		}],
+		['[data-module="resource"]', 'disconnected', async e => {
+		}],
 		['[data-module="resource"]', 'establishrtc', async e => {
 			const connection_id = e.target.dataset.connection_id;
 			await addModule(e.target, 'rtc', {connection_id});
