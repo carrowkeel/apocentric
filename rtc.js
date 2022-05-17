@@ -74,9 +74,11 @@ const processIceQueue = async (connection, queue) => {
 const handleSignalingState = async (connection, event, user) => {
 };
 
-const handleConnectionState = async (connection, event, user) => {
+const handleConnectionState = async (rtc_elem, connection, event, user) => {
 	if (connection.iceConnectionState === 'failed')
 		connection.restartIce();
+	else if (connection.iceConnectionState === 'disconnected')
+		rtc_elem.dispatchEvent(new Event('disconnect'));
 };
 
 const createPeerConnection = (rtc_elem, resource, user, ice_queue, receiving, active = true) => {
@@ -93,7 +95,7 @@ const createPeerConnection = (rtc_elem, resource, user, ice_queue, receiving, ac
 	connection.addEventListener('icecandidate', event => sendCandidate(resource, event, user));
 	//connection.addEventListener('icecandidateerror', event => console.log(event));
 	connection.addEventListener('signalingstatechange', event => handleSignalingState(connection, event, user));
-	connection.addEventListener('iceconnectionstatechange', event => handleConnectionState(connection, event, user));
+	connection.addEventListener('iceconnectionstatechange', event => handleConnectionState(rtc_elem, connection, event, user));
 	connection.addEventListener('icegatheringstatechange', event => processIceQueue(connection, ice_queue));
 	if (active)
 		addDataChannel(rtc_elem, undefined, user, receiving, connection.createDataChannel(user));
@@ -167,6 +169,7 @@ export const rtc = (env, {connection_id: ws_connection_id, rtc_data}, elem, stor
 		}],
 		['[data-module="rtc"]', 'channeldisconnected', e => {
 			elem.dataset.status = 'disconnected';
+			elem.dispatchEvent(new Event('disconnected'));
 		}],
 		['[data-module="rtc"]', 'send', async e => {
 			// Move stream handling elsewhere

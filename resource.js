@@ -62,6 +62,10 @@ export const resource = (env, {resource, settings, queue}, elem, storage={}) => 
 		['[data-module="rtc"]', 'connected', e => {
 			elem.dataset.connectionStatus |= 2;
 		}],
+		['[data-module="rtc"]', 'disconnected', e => {
+			console.log(e);
+			elem.dataset.connectionStatus &= ~2;
+		}],
 		['.apocentric', 'resourcestatus', e => {
 			const active_threads = e.detail.workers.filter(v => v !== undefined).length;
 			const used = active_threads / e.detail.threads;
