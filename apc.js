@@ -235,6 +235,10 @@ export const apc = (env, {options}, elem, storage={}) => ({
 			}
 			// Consider case where resource doesn't exist yet
 		}],
+		['[data-module="resource"]', 'connectionstatechange', e => {
+			if (+(e.target.dataset.connectionState) === 0)
+				e.target.remove();
+		}],
 		['.resources-menu [data-tab]', 'click', e => {
 			const menu = e.target.closest('.resources-menu');
 			menu.querySelectorAll('[data-tab]').forEach(elem => elem.classList.remove('selected'));

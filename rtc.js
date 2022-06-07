@@ -1,29 +1,33 @@
 
 const range = (start,end) => Array.from(Array(end-start)).map((v,i)=>i+start);
 
-const rtcReceiveParts = (channel, request_id, parts = [], n = 0) => new Promise((resolve, reject) => {
-	channel.addEventListener('message', e => { // Remove listener when resolved
+const rtcReceiveParts = (channel, message_id, parts = [], n = 0) => new Promise((resolve, reject) => {
+	const handle_part = e => {
 		const message_data = JSON.parse(e.data);
-		if (message_data.request_id !== request_id)
+		if (message_data.message_id !== message_id)
 			return;
 		parts.push([message_data.part, message_data.data]);
-		if (message_data.parts === parts.length)
+		if (message_data.parts === parts.length) {
+			channel.removeEventListener('message', handle_part);
 			resolve(parts.sort((a,b) => a[0] - b[0]).map(v => v[1]).join(''));
-	});
+		}
+	}
+	channel.addEventListener('message', handle_part);
 });
 
 const decodeMessage = async (channel, message_data, receiving) => {
-	const compressed = message_data.parts > 1 && message_data.request_id ? await rtcReceiveParts(channel, message_data.request_id, [[message_data.part, message_data.data]], receiving.push(message_data.request_id)) : message_data.data;
+	const compressed = message_data.parts > 1 && message_data.message_id ? await rtcReceiveParts(channel, message_data.message_id, [[message_data.part, message_data.data]], receiving.push(message_data.message_id)) : message_data.data;
 	const decompressed = message_data.compression === 'json' ? parseJSON(compressed) : compressed;
 	return Object.assign(message_data, {data: decompressed});
 };
 
 const rtcSend = async (channel, request, rtc_message_limit = 100 * 1024) => { // The limit is higher so this could be increased
 	const compressed = JSON.stringify(request.data);
+	const message_id = Math.round(Math.random()*1e7); // Test solution, to identify messages when requests have multiple, multipart messages
 	if (compressed.length > rtc_message_limit) {
 		const parts = Math.ceil(compressed.length / rtc_message_limit);
 		for (const part of range(0, parts)) {
-			const data = JSON.stringify(Object.assign(request, {part, parts, compression: 'json', data: compressed.slice(part * rtc_message_limit, (part + 1) * rtc_message_limit)}));
+			const data = JSON.stringify(Object.assign(request, {message_id, part, parts, compression: 'json', data: compressed.slice(part * rtc_message_limit, (part + 1) * rtc_message_limit)}));
 			channel.send(data);
 		}
 	} else
@@ -48,7 +52,7 @@ const addDataChannel = (rtc_elem, event, user, receiving, _channel) => {
 
 const receiveMessage = async (rtc_elem, event, user, receiving) => {
 	const message_data = parseJSON(event.data);
-	if (message_data.request_id && receiving.includes(message_data.request_id))
+	if (message_data.message_id && receiving.includes(message_data.message_id))
 		return;
 	const channel = event.target;
 	const message = await decodeMessage(channel, message_data, receiving);

@@ -5,7 +5,7 @@ export const resource = (env, {resource, settings, queue}, elem, storage={}) => 
 		const frameworks = resource.frameworks.split(',').map(framework => `<a data-framework="${framework}">.${framework}</a>`).join('');
 		elem.classList.add('item'); // Temp
 		//elem.dataset.status = settings ? settings.status : 0;
-		elem.dataset.connectionStatus = 1;
+		elem.dataset.connectionState = 1;
 		elem.dataset.used = threads;
 		elem.innerHTML = `<div class="details"><a class="name">${resource.connection_id === 'local' ? 'Local' : resource.name === 'node' ? resource.machine_id : resource.name}</a><div class="frameworks">${frameworks}</div></div><input class="threads" placeholder="${resource.capacity}" value="${threads}"><div class="clear"></div>`;
 		elem.dispatchEvent(new Event('init'));
@@ -19,10 +19,12 @@ export const resource = (env, {resource, settings, queue}, elem, storage={}) => 
 		['[data-module="resource"]', 'wsconnected', async e => {
 			if (e.detail?.connection_id)
 				elem.dataset.connection_id = e.detail.connection_id;
-			elem.dataset.connectionStatus |= 1;
+			elem.dataset.connectionState |= 1;
+			elem.dispatchEvent(new Event('connectionstatechange'));
 		}],
 		['[data-module="resource"]', 'wsdisconnected', async e => {
-			elem.dataset.connectionStatus &= ~1;
+			elem.dataset.connectionState &= ~1;
+			elem.dispatchEvent(new Event('connectionstatechange'));
 		}],
 		['[data-module="resource"]', 'establishrtc', async e => {
 			const connection_id = e.target.dataset.connection_id;
@@ -60,11 +62,12 @@ export const resource = (env, {resource, settings, queue}, elem, storage={}) => 
 			}
 		}],
 		['[data-module="rtc"]', 'connected', e => {
-			elem.dataset.connectionStatus |= 2;
+			elem.dataset.connectionState |= 2;
+			elem.dispatchEvent(new Event('connectionstatechange'));
 		}],
 		['[data-module="rtc"]', 'disconnected', e => {
-			console.log(e);
-			elem.dataset.connectionStatus &= ~2;
+			elem.dataset.connectionState &= ~2;
+			elem.dispatchEvent(new Event('connectionstatechange'));
 		}],
 		['.apocentric', 'resourcestatus', e => {
 			const active_threads = e.detail.workers.filter(v => v !== undefined).length;

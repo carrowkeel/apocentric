@@ -50,7 +50,7 @@ const decodeMessage = async (ws, message_data, receiving) => {
 	return Object.assign(message_data, {data: decompressed});
 };
 
-const connectWebSocket = (container, url, receiving = []) => {
+const connectWebSocket = (container, url, getCredentials, receiving = []) => {
 	const ws = new WebSocket(url);
 	ws.addEventListener('open', e => {
 		container.dispatchEvent(new Event('connected'));
@@ -64,6 +64,10 @@ const connectWebSocket = (container, url, receiving = []) => {
 	});
 	ws.addEventListener('message', async e => {
 		const message_data = parseJSON(e.data);
+		if (message_data.user_id !== undefined && message_data.user_id !== getCredentials('user_id')) {
+			console.warn(`Ignoring message from user '${message_data.user_id}'`);
+			return;
+		}
 		if (message_data.request_id && receiving.includes(message_data.request_id))
 			return;
 		const message = await decodeMessage(ws, message_data, receiving);
@@ -90,7 +94,7 @@ export const ws = (env, {options, local}, elem, storage={receiving: []}) => ({
 			const params = new URLSearchParams({authorization: token, ...local}); // Maybe get local resource from DOM
 			elem.dataset.status = 'connecting';
 			elem.querySelector('.connect').textContent = 'Connecting';
-			storage.ws = connectWebSocket(elem, `${options.url}/?${params.toString()}`);
+			storage.ws = connectWebSocket(elem, `${options.url}/?${params.toString()}`, options.getCredentials);
 		}],
 		['[data-module="ws"]', 'disconnect', e => {
 			if (!storage.ws)
@@ -114,7 +118,6 @@ export const ws = (env, {options, local}, elem, storage={receiving: []}) => ({
 			return wsSend(storage.ws, e.detail);
 		}],
 		['[data-module="ws"]', 'message', e => {
-
 		}],
 		['.connect', 'click', e => {
 			if (elem.dataset.status === 'disconnected') {
