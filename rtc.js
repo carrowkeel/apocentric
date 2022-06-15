@@ -86,6 +86,7 @@ const handleConnectionState = async (rtc_elem, connection, event, user) => {
 };
 
 const createPeerConnection = (rtc_elem, resource, user, ice_queue, receiving, active = true) => {
+	console.log(`create ${active ? 'active' : 'passive'} rtc connection`);
 	const google_stun = {
 		urls: [
 			'stun:stun.l.google.com:19302',

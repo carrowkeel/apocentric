@@ -144,14 +144,14 @@ const distribute = (container, request) => {
 		.then(results => results.reduce((a,result) => a.concat(result), []));
 };
 
-const addResource = (container, options, resource, duplicates=false) => {
+const addResource = (container, options, resource, duplicates=false, active=false) => {
 	if (!duplicates && (resource.machine_id === options.id))
 		return;
 	const current = container.querySelectorAll(`[data-machine_id="${resource.machine_id}"]`);
 	if (current.length > 0)
 		return current.forEach(elem => elem.dispatchEvent(new CustomEvent('wsconnected', {detail: {connection_id: resource.connection_id}})));
 	const settings = cachedSettings();
-	addModule(container, 'resource', {resource, settings: settings.machines[resource.machine_id], frameworks: resource.frameworks, machine_id: resource.machine_id, connection_id: resource.connection_id});
+	addModule(container, 'resource', {resource, settings: settings.machines[resource.machine_id], frameworks: resource.frameworks, machine_id: resource.machine_id, connection_id: resource.connection_id, active});
 };
 
 const addJobItem = (container, job) => {
@@ -227,7 +227,7 @@ export const apc = (env, {options}, elem, storage={}) => ({
 				case 'resources':
 					return message.data.forEach(resource => addResource(elem.querySelector('[data-tab-content="resources"]'), options, resource));
 				case 'connected':
-					return addResource(elem.querySelector('[data-tab-content="resources"]'), options, message.data);
+					return addResource(elem.querySelector('[data-tab-content="resources"]'), options, message.data, false, true);
 				case 'disconnected':
 					return elem.querySelectorAll(`[data-module="resource"][data-connection_id="${message.connection_id}"]`).forEach(resource => resource.dispatchEvent(new Event('wsdisconnected')));
 				default:

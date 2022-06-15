@@ -1,5 +1,5 @@
 
-export const resource = (env, {resource, settings, queue}, elem, storage={}) => ({
+export const resource = (env, {resource, settings, active}, elem, storage={}) => ({
 	render: async () => {
 		const threads = settings ? settings.used : resource.capacity;
 		const frameworks = resource.frameworks.split(',').map(framework => `<a data-framework="${framework}">.${framework}</a>`).join('');
@@ -13,7 +13,7 @@ export const resource = (env, {resource, settings, queue}, elem, storage={}) => 
 	},
 	hooks: [
 		['[data-module="resource"]', 'init', e => {
-			if (elem.dataset.connection_id !== 'local')
+			if (elem.dataset.connection_id !== 'local' && active)
 				elem.dispatchEvent(new Event('establishrtc'));
 		}],
 		['[data-module="resource"]', 'wsconnected', async e => {
