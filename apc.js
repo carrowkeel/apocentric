@@ -20,16 +20,18 @@ const spawnWorker = (options, workers, i, request, stream) => new Promise(resolv
 		workers[i] = new Worker(options.worker_script || '/worker.js');
 	}
 	workers[i].postMessage(Object.assign({}, request, {credentials: options.getCredentials()}));
-	workers[i].addEventListener('message', e => {
+	const handle_response = e => {
 		const message = e.data;
 		switch(message.type) {
 			case 'dynamics':
 				return stream(message.data);
 			default:
 				stream(false);
+				workers[i].removeEventListener('message', handle_response);
 				resolve(message.data);
 		}
-	});
+	};
+	workers[i].addEventListener('message', handle_response);
 });
 
 const workerQueue = (container, options, workers=Array.from(new Array(options.threads)), queue=[]) => (request, stream=()=>{}) => {

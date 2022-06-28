@@ -21,14 +21,17 @@ const decompress = async base64_compressed => {
 };
 
 const wsReceiveParts = (ws, request_id, parts = [], n = 0) => new Promise((resolve, reject) => {
-	ws.addEventListener('message', e => {
+	const handle_part = e => {
 		const message_data = JSON.parse(e.data);
 		if (message_data.request_id !== request_id)
 			return;
 		parts.push([message_data.part, message_data.data]);
-		if (message_data.parts === parts.length)
+		if (message_data.parts === parts.length) {
+			ws.removeEventListener('message', handle_part);
 			resolve(parts.sort((a,b) => a[0] - b[0]).map(v => v[1]).join(''));
-	});
+		}
+	};
+	ws.addEventListener('message', handle_part);
 });
 
 const wsSend = async (ws, request, websocket_frame_limit = 30 * 1024, compression_threshold = 10 * 1024) => { // Fix issue with json encoding
