@@ -82,7 +82,7 @@ const batchJobs = (jobs, threads, time=100, min_time=1000) => {
 const distributeDynamics = (container, request) => new Promise((resolve, reject) => {
 	const {framework, sources, params} = request;
 	const resources = Array.from(container.querySelectorAll('[data-module="resource"]'))
-		.filter(resource => resource.dataset.used > 0 && resource.dataset.frameworks.split(',').includes(framework))
+		.filter(resource => resource.dataset.used > 0 && resource.dataset.connectionState & 2 && resource.dataset.frameworks.split(',').includes(framework))
 		.sort((a,b) => b.dataset.connection_id === 'local' || b.dataset.used - a.dataset.used);
 	if (resources.length === 0)
 		throw 'No available threads';
@@ -119,7 +119,7 @@ const distributeDynamics = (container, request) => new Promise((resolve, reject)
 const distribute = (container, request) => {
 	const {id, framework, sources, fixed_params, variable_params} = request;
 	const resources = Array.from(container.querySelectorAll('[data-module="resource"]'))
-		.filter(resource => resource.dataset.used > 0 && resource.dataset.frameworks.split(',').includes(framework))
+		.filter(resource => resource.dataset.used > 0 && resource.dataset.connectionState & 2 && resource.dataset.frameworks.split(',').includes(framework))
 		.sort((a,b) => a.local || b.dataset.used - a.dataset.used);
 	const threads = sum(resources.map(resource => +(resource.dataset.used)));
 	if (threads === 0)

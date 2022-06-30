@@ -28,6 +28,8 @@ export const resource = (env, {resource, settings, active}, elem, storage={}) =>
 		}],
 		['[data-module="resource"]', 'establishrtc', async e => {
 			const connection_id = e.target.dataset.connection_id;
+			// Remove previous modules? if disconnected?
+			e.target.querySelectorAll('[data-module="rtc"]').forEach(rtc => rtc.remove());
 			await addModule(e.target, 'rtc', {connection_id});
 			e.target.querySelector('[data-module="rtc"]').dispatchEvent(new Event('connect'));
 		}],
@@ -37,7 +39,6 @@ export const resource = (env, {resource, settings, active}, elem, storage={}) =>
 				addModule(e.target, 'rtc', {connection_id, rtc_data: e.detail});
 			else
 				e.target.querySelector('[data-module="rtc"]').dispatchEvent(new CustomEvent('receivedata', {detail: e.detail}));
-			
 		}],
 		['[data-module="resource"]', 'send', e => {
 			if (e.target.dataset.connection_id === 'local')
@@ -75,7 +76,7 @@ export const resource = (env, {resource, settings, active}, elem, storage={}) =>
 			e.target.closest('.apocentric').querySelector('.resources-icon').dataset.notify = active_threads;
 		}],
 		['.resources-menu .name', 'click', e => {
-			//elem.dispatchEvent(new Event('establishrtc'));
+			elem.dispatchEvent(new Event('establishrtc'));
 			//e.target.closest('[data-connection_id]').classList.toggle('disabled');
 		}],
 		['.resources-menu .threads', 'focusout', e => {
