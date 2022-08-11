@@ -5,7 +5,7 @@ export const resource = (env, {resource, settings, active}, elem, storage={}) =>
 		const frameworks = resource.frameworks.split(',').map(framework => `<a data-framework="${framework}">.${framework}</a>`).join('');
 		elem.classList.add('item'); // Temp
 		//elem.dataset.status = settings ? settings.status : 0;
-		elem.dataset.connectionState = 1;
+		elem.dataset.connectionState = resource.connection_id === 'local' ? 3 : 1;
 		elem.dataset.used = threads;
 		elem.innerHTML = `<div class="details"><a class="name">${resource.connection_id === 'local' ? 'Local' : resource.name === 'node' ? resource.machine_id : resource.name}</a><div class="frameworks">${frameworks}</div></div><input class="threads" placeholder="${resource.capacity}" value="${threads}"><div class="clear"></div>`;
 		elem.dispatchEvent(new Event('init'));
