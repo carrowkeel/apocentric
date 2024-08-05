@@ -72,7 +72,7 @@ const getName = () => {
 	return name;
 };
 
-const batchJobs = (jobs, threads, time=100, min_time=1000) => {
+const batchJobs = (jobs, threads, time=1000, min_time=1000) => {
 	const n = Math.min(threads, Math.ceil(jobs.length * time / min_time), jobs.length);
 	const batch_size = Math.ceil(jobs.length / n);
 	const batches = range(0, n).map(i => jobs.slice(i * batch_size, (i + 1) * batch_size));
@@ -138,6 +138,9 @@ const distribute = (container, request) => {
 				const message = e.detail.message;
 				if (message.type === 'result' && message.request_id === request_id) {
 					const result = message.data.reduce((a,batch) => a.concat(batch), []);
+					//console.log(result);
+					if (result.error)
+						console.error(`${message.request_id} failed`);
 					resolve(result);
 				}
 			});
