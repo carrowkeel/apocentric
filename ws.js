@@ -21,14 +21,17 @@ const decompress = async base64_compressed => {
 };
 
 const wsReceiveParts = (ws, request_id, parts = [], n = 0) => new Promise((resolve, reject) => {
-	ws.addEventListener('message', e => {
+	const handle_part = e => {
 		const message_data = JSON.parse(e.data);
 		if (message_data.request_id !== request_id)
 			return;
 		parts.push([message_data.part, message_data.data]);
-		if (message_data.parts === parts.length)
+		if (message_data.parts === parts.length) {
+			ws.removeEventListener('message', handle_part);
 			resolve(parts.sort((a,b) => a[0] - b[0]).map(v => v[1]).join(''));
-	});
+		}
+	};
+	ws.addEventListener('message', handle_part);
 });
 
 const wsSend = async (ws, request, websocket_frame_limit = 30 * 1024, compression_threshold = 10 * 1024) => { // Fix issue with json encoding
@@ -50,7 +53,7 @@ const decodeMessage = async (ws, message_data, receiving) => {
 	return Object.assign(message_data, {data: decompressed});
 };
 
-const connectWebSocket = (container, url, receiving = []) => {
+const connectWebSocket = (container, url, getCredentials, receiving = []) => {
 	const ws = new WebSocket(url);
 	ws.addEventListener('open', e => {
 		container.dispatchEvent(new Event('connected'));
@@ -59,11 +62,15 @@ const connectWebSocket = (container, url, receiving = []) => {
 		container.dispatchEvent(new Event('disconnected'));
 	});
 	ws.addEventListener('error', error => {
-		console.log(error);
 		container.dispatchEvent(new CustomEvent('error', {detail: {error}}));
+		container.dispatchEvent(new Event('disconnected'));
 	});
 	ws.addEventListener('message', async e => {
 		const message_data = parseJSON(e.data);
+		if (message_data.user_id !== undefined && message_data.user_id !== getCredentials('user_id')) {
+			console.warn(`Ignoring message from user '${message_data.user_id}'`);
+			return;
+		}
 		if (message_data.request_id && receiving.includes(message_data.request_id))
 			return;
 		const message = await decodeMessage(ws, message_data, receiving);
@@ -82,7 +89,7 @@ export const ws = (env, {options, local}, elem, storage={receiving: []}) => ({
 	},
 	hooks: [
 		['[data-module="ws"]', 'connect', e => {
-			if (storage.ws && storage.ws.readyState > 1)
+			if (storage.ws && storage.ws.readyState <= 1)
 				return; // Possibly check if status is "connecting"
 			const token = options.getCredentials('token');
 			if (!token)
@@ -90,7 +97,14 @@ export const ws = (env, {options, local}, elem, storage={receiving: []}) => ({
 			const params = new URLSearchParams({authorization: token, ...local}); // Maybe get local resource from DOM
 			elem.dataset.status = 'connecting';
 			elem.querySelector('.connect').textContent = 'Connecting';
-			storage.ws = connectWebSocket(elem, `${options.url}/?${params.toString()}`);
+			storage.ws = connectWebSocket(elem, `${options.url}/?${params.toString()}`, options.getCredentials);
+		}],
+		['[data-module="ws"]', 'disconnect', e => {
+			if (!storage.ws)
+				return;
+			elem.dataset.status = 'disconnected';
+			elem.querySelector('.connect').textContent = 'Connect';
+			storage.ws.close();
 		}],
 		['[data-module="ws"]', 'connected', e => {
 			elem.dataset.status = 'connected';
@@ -98,8 +112,8 @@ export const ws = (env, {options, local}, elem, storage={receiving: []}) => ({
 			elem.dispatchEvent(new CustomEvent('send', {detail: {type: 'connected', data: local}}));
 		}],
 		['[data-module="ws"]', 'disconnected', e => {
-			if (elem.dataset.status === 'connected') // Check why it disconnected
-				elem.dispatchEvent(new Event('connect'));
+			if (elem.dataset.status !== 'disconnected') // Check why it disconnected
+				return elem.dispatchEvent(new Event('connect'));
 			elem.dataset.status = 'disconnected';
 			elem.querySelector('.connect').textContent = 'Connect';
 		}],
@@ -107,7 +121,6 @@ export const ws = (env, {options, local}, elem, storage={receiving: []}) => ({
 			return wsSend(storage.ws, e.detail);
 		}],
 		['[data-module="ws"]', 'message', e => {
-
 		}],
 		['.connect', 'click', e => {
 			if (elem.dataset.status === 'disconnected') {
@@ -115,8 +128,7 @@ export const ws = (env, {options, local}, elem, storage={receiving: []}) => ({
 				elem.dispatchEvent(new Event('connect'));
 			} else {
 				//cachedSettings({connected: false});
-				storage.ws.close();
-				elem.dispatchEvent(new Event('disconnected'));
+				elem.dispatchEvent(new Event('disconnect'));
 			}
 		}],
 	]

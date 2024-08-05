@@ -20,16 +20,18 @@ const spawnWorker = (options, workers, i, request, stream) => new Promise(resolv
 		workers[i] = new Worker(options.worker_script || '/worker.js');
 	}
 	workers[i].postMessage(Object.assign({}, request, {credentials: options.getCredentials()}));
-	workers[i].addEventListener('message', e => {
+	const handle_response = e => {
 		const message = e.data;
 		switch(message.type) {
 			case 'dynamics':
 				return stream(message.data);
 			default:
 				stream(false);
+				workers[i].removeEventListener('message', handle_response);
 				resolve(message.data);
 		}
-	});
+	};
+	workers[i].addEventListener('message', handle_response);
 });
 
 const workerQueue = (container, options, workers=Array.from(new Array(options.threads)), queue=[]) => (request, stream=()=>{}) => {
@@ -58,7 +60,7 @@ const getID = () => {
 	if (localStorage.getItem('apc_machine_id'))
 		return localStorage.getItem('apc_machine_id');
 	const id = generateID(6);
-	localStorage.setItem('apc_machine_id', id)
+	localStorage.setItem('apc_machine_id', id);
 	return id;
 };
 
@@ -66,11 +68,11 @@ const getName = () => {
 	if (localStorage.getItem('apc_machine_name'))
 		return localStorage.getItem('apc_machine_name');
 	const name = 'node';
-	localStorage.setItem('apc_machine_name', name)
+	localStorage.setItem('apc_machine_name', name);
 	return name;
 };
 
-const batchJobs = (jobs, threads, time=100, min_time=1000) => {
+const batchJobs = (jobs, threads, time=1000, min_time=1000) => {
 	const n = Math.min(threads, Math.ceil(jobs.length * time / min_time), jobs.length);
 	const batch_size = Math.ceil(jobs.length / n);
 	const batches = range(0, n).map(i => jobs.slice(i * batch_size, (i + 1) * batch_size));
@@ -80,8 +82,8 @@ const batchJobs = (jobs, threads, time=100, min_time=1000) => {
 const distributeDynamics = (container, request) => new Promise((resolve, reject) => {
 	const {framework, sources, params} = request;
 	const resources = Array.from(container.querySelectorAll('[data-module="resource"]'))
-		.filter(resource => resource.dataset.used > 0 && resource.dataset.frameworks.split(',').includes(framework))
-		.sort((a,b) => resource.dataset.connection_id === 'local' || b.dataset.used - a.dataset.used);
+		.filter(resource => resource.dataset.used > 0 && resource.dataset.connectionState & 2 && resource.dataset.frameworks.split(',').includes(framework))
+		.sort((a,b) => b.dataset.connection_id === 'local' || b.dataset.used - a.dataset.used);
 	if (resources.length === 0)
 		throw 'No available threads';
 	const resource = resources[0]; // Just use first resource for the moment
@@ -117,7 +119,7 @@ const distributeDynamics = (container, request) => new Promise((resolve, reject)
 const distribute = (container, request) => {
 	const {id, framework, sources, fixed_params, variable_params} = request;
 	const resources = Array.from(container.querySelectorAll('[data-module="resource"]'))
-		.filter(resource => resource.dataset.used > 0 && resource.dataset.frameworks.split(',').includes(framework))
+		.filter(resource => resource.dataset.used > 0 && resource.dataset.connectionState & 2 && resource.dataset.frameworks.split(',').includes(framework))
 		.sort((a,b) => a.local || b.dataset.used - a.dataset.used);
 	const threads = sum(resources.map(resource => +(resource.dataset.used)));
 	if (threads === 0)
@@ -136,6 +138,9 @@ const distribute = (container, request) => {
 				const message = e.detail.message;
 				if (message.type === 'result' && message.request_id === request_id) {
 					const result = message.data.reduce((a,batch) => a.concat(batch), []);
+					//console.log(result);
+					if (result.error)
+						console.error(`${message.request_id} failed`);
 					resolve(result);
 				}
 			});
@@ -144,12 +149,14 @@ const distribute = (container, request) => {
 		.then(results => results.reduce((a,result) => a.concat(result), []));
 };
 
-const addResource = (container, options, resource, duplicates=false) => {
+const addResource = (container, options, resource, duplicates=false, active=false) => {
 	if (!duplicates && (resource.machine_id === options.id))
 		return;
-	container.querySelectorAll(`[data-machine_id="${resource.machine_id}"]`).forEach(item => item.remove());
+	const current = container.querySelectorAll(`[data-machine_id="${resource.machine_id}"]`);
+	if (current.length > 0)
+		return current.forEach(elem => elem.dispatchEvent(new CustomEvent('wsconnected', {detail: {connection_id: resource.connection_id}})));
 	const settings = cachedSettings();
-	addModule(container, 'resource', {resource, settings: settings.machines[resource.machine_id], frameworks: resource.frameworks, machine_id: resource.machine_id, connection_id: resource.connection_id});
+	addModule(container, 'resource', {resource, settings: settings.machines[resource.machine_id], frameworks: resource.frameworks, machine_id: resource.machine_id, connection_id: resource.connection_id, active});
 };
 
 const addJobItem = (container, job) => {
@@ -216,19 +223,26 @@ export const apc = (env, {options}, elem, storage={}) => ({
 			const used = active_threads / e.detail.threads;
 			elem.querySelector('.resources-icon').dataset.notify = active_threads;
 		}],
+		['[data-module="ws"]', 'disconnected', e => {
+			elem.querySelectorAll(`[data-module="resource"]:not([data-connection_id="local"])`).forEach(resource => resource.dispatchEvent(new Event('wsdisconnected')));
+		}],
 		['[data-module="ws"]', 'message', e => {
 			const message = e.detail.message;
 			switch(message.type) {
 				case 'resources':
 					return message.data.forEach(resource => addResource(elem.querySelector('[data-tab-content="resources"]'), options, resource));
 				case 'connected':
-					return addResource(elem.querySelector('[data-tab-content="resources"]'), options, message.data);
+					return addResource(elem.querySelector('[data-tab-content="resources"]'), options, message.data, false, true);
 				case 'disconnected':
-					return elem.querySelectorAll(`[data-module="resource"][data-connection_id="${message.connection_id}"]`).forEach(item => item.remove());
+					return elem.querySelectorAll(`[data-module="resource"][data-connection_id="${message.connection_id}"]`).forEach(resource => resource.dispatchEvent(new Event('wsdisconnected')));
 				default:
 					return elem.querySelector(`[data-module="resource"][data-connection_id="${message.user}"]`).dispatchEvent(new CustomEvent('message', {detail: e.detail}));
 			}
 			// Consider case where resource doesn't exist yet
+		}],
+		['[data-module="resource"]', 'connectionstatechange', e => {
+			if (+(e.target.dataset.connectionState) === 0)
+				e.target.remove();
 		}],
 		['.resources-menu [data-tab]', 'click', e => {
 			const menu = e.target.closest('.resources-menu');
